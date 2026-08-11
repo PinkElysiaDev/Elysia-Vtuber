@@ -139,13 +139,13 @@ export const Config = Schema.object({
           Schema.const('volcano_mega').description('精品大模型语音合成 (volcano_mega)')
         ]).default('volcano_tts').description('集群类型'),
         voiceType: Schema.string().description('音色ID')
-      }).description('火山方舟TTS配置'),
+      }),
       Schema.object({
         provider: Schema.const('clone'),
         baseURL: Schema.string().description('API 地址'),
         apiKey: Schema.string().role('secret').description('API 密钥'),
         voiceId: Schema.string().description('声音ID')
-      }).description('声音克隆配置')
+      })
     ])
   ]).description('TTS 配置'),
 
