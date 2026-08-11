@@ -36,7 +36,7 @@ export class TTSManager {
     } else if (this.config.provider === 'clone') {
       return await this.synthesizeClone(request)
     } else {
-      throw new Error(`Unknown TTS provider: ${this.config.provider}`)
+      throw new Error('Unknown TTS provider')
     }
   }
 
@@ -44,19 +44,24 @@ export class TTSManager {
    * 火山方舟 TTS
    */
   private async synthesizeVolcengine(request: TTSRequest): Promise<TTSResponse> {
-    const url = `${this.config.volcengine.baseURL}/api/v1/tts`
+    if (this.config.provider !== 'volcengine') {
+      throw new Error('Invalid config for volcengine')
+    }
+
+    const baseURL = this.config.baseURL || 'https://openspeech.bytedance.com'
+    const url = `${baseURL}/api/v1/tts`
 
     const body = {
       app: {
-        appid: this.config.volcengine.appId,
-        token: this.config.volcengine.token,
-        cluster: this.config.volcengine.cluster
+        appid: this.config.appId || '',
+        token: this.config.token || '',
+        cluster: this.config.cluster || 'volcano_tts'
       },
       user: {
         uid: 'vtuber_user'
       },
       audio: {
-        voice_type: request.voiceType || this.config.volcengine.voiceType,
+        voice_type: request.voiceType || this.config.voiceType || 'zh_female_qingxin',
         encoding: 'mp3',
         speed_ratio: request.speed || 1.0,
         volume_ratio: request.volume || 1.0,
@@ -70,12 +75,17 @@ export class TTSManager {
       }
     }
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+
+    if (this.config.token) {
+      headers['Authorization'] = `Bearer ${this.config.token}`
+    }
+
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.volcengine.accessToken}`
-      },
+      headers,
       body: JSON.stringify(body)
     })
 
@@ -104,22 +114,32 @@ export class TTSManager {
    * 声音克隆 TTS
    */
   private async synthesizeClone(request: TTSRequest): Promise<TTSResponse> {
-    const url = `${this.config.clone.baseURL}/api/v1/clone`
+    if (this.config.provider !== 'clone') {
+      throw new Error('Invalid config for clone')
+    }
+
+    const baseURL = this.config.baseURL || ''
+    const url = `${baseURL}/api/v1/clone`
 
     const body = {
       text: request.text,
-      voice_id: this.config.clone.voiceId,
+      voice_id: this.config.voiceId || '',
       speed: request.speed || 1.0,
       volume: request.volume || 1.0,
       pitch: request.pitch || 1.0
     }
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+
+    if (this.config.apiKey) {
+      headers['Authorization'] = `Bearer ${this.config.apiKey}`
+    }
+
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.clone.apiKey}`
-      },
+      headers,
       body: JSON.stringify(body)
     })
 

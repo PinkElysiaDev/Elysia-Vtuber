@@ -11,8 +11,9 @@ export class OpenAIAdapter extends BaseLLMAdapter {
 
   async chat(request: LLMRequest): Promise<LLMResponse> {
     const body = this.buildRequestBody(request)
+    const baseURL = this.baseURL || 'https://api.openai.com/v1'
 
-    const response = await fetch(`${this.baseURL}/chat/completions`, {
+    const response = await fetch(`${baseURL}/chat/completions`, {
       method: 'POST',
       headers: {
         ...this.buildHeaders(),
@@ -31,8 +32,9 @@ export class OpenAIAdapter extends BaseLLMAdapter {
 
   async *chatStream(request: LLMRequest): AsyncGenerator<LLMResponse, void, unknown> {
     const body = this.buildRequestBody(request, true)
+    const baseURL = this.baseURL || 'https://api.openai.com/v1'
 
-    const response = await fetch(`${this.baseURL}/chat/completions`, {
+    const response = await fetch(`${baseURL}/chat/completions`, {
       method: 'POST',
       headers: {
         ...this.buildHeaders(),

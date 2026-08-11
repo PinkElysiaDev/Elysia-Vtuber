@@ -38,14 +38,14 @@ export abstract class BaseLLMAdapter implements LLMAdapter {
   protected customHeaders: Record<string, string>
 
   constructor(config: {
-    apiKey: string
-    baseURL: string
-    model: string
+    apiKey?: string
+    baseURL?: string
+    model?: string
     customHeaders?: Record<string, string>
   }) {
-    this.apiKey = config.apiKey
-    this.baseURL = config.baseURL
-    this.model = config.model
+    this.apiKey = config.apiKey || ''
+    this.baseURL = config.baseURL || ''
+    this.model = config.model || ''
     this.customHeaders = config.customHeaders || {}
   }
 

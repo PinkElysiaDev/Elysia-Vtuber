@@ -10,7 +10,8 @@ export class GeminiAdapter extends BaseLLMAdapter {
 
   async chat(request: LLMRequest): Promise<LLMResponse> {
     const body = this.buildRequestBody(request)
-    const url = `${this.baseURL}/models/${this.model}:generateContent?key=${this.apiKey}`
+    const baseURL = this.baseURL || 'https://generativelanguage.googleapis.com/v1beta'
+    const url = `${baseURL}/models/${this.model || 'gemini-pro'}:generateContent?key=${this.apiKey}`
 
     const response = await fetch(url, {
       method: 'POST',
@@ -28,7 +29,8 @@ export class GeminiAdapter extends BaseLLMAdapter {
 
   async *chatStream(request: LLMRequest): AsyncGenerator<LLMResponse, void, unknown> {
     const body = this.buildRequestBody(request)
-    const url = `${this.baseURL}/models/${this.model}:streamGenerateContent?key=${this.apiKey}`
+    const baseURL = this.baseURL || 'https://generativelanguage.googleapis.com/v1beta'
+    const url = `${baseURL}/models/${this.model || 'gemini-pro'}:streamGenerateContent?key=${this.apiKey}`
 
     const response = await fetch(url, {
       method: 'POST',

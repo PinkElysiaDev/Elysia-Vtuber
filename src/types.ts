@@ -102,10 +102,10 @@ export type ApiProtocol = 'chat-completions' | 'anthropic' | 'gemini' | 'respons
 export type ProviderType = 'openai' | 'anthropic' | 'gemini'
 
 export interface ProviderConfig {
-  provider: ProviderType
-  baseURL: string
-  apiKey: string
-  model: string
+  provider?: ProviderType
+  baseURL?: string
+  apiKey?: string
+  model?: string
   customHeaders?: Record<string, string>
   temperature?: number
   maxTokens?: number
@@ -152,22 +152,25 @@ export interface LLMResponse {
 
 // ==================== TTS 配置 ====================
 
-export interface TTSConfig {
-  provider: 'volcengine' | 'clone'
-  volcengine: {
-    baseURL: string
-    appId: string
-    token: string
-    cluster: string
-    accessToken: string
-    voiceType: string
-  }
-  clone: {
-    baseURL: string
-    apiKey: string
-    voiceId: string
-  }
+export type TTSCluster = 'volcano_tts' | 'volcano_mega'
+
+export interface VolcengineTTSConfig {
+  provider: 'volcengine'
+  baseURL?: string
+  appId?: string
+  token?: string
+  cluster?: TTSCluster
+  voiceType?: string
 }
+
+export interface CloneTTSConfig {
+  provider: 'clone'
+  baseURL?: string
+  apiKey?: string
+  voiceId?: string
+}
+
+export type TTSConfig = VolcengineTTSConfig | CloneTTSConfig
 
 // ==================== 输出配置 ====================
 

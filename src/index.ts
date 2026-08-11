@@ -14,7 +14,6 @@ import { BackendClient } from './backend/client'
 import { registerAllTools } from './llm/tools'
 
 export const name = 'vtuber'
-export const inject = ['bililive']
 
 export { Config }
 

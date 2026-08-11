@@ -90,10 +90,10 @@ export const Config = Schema.object({
         Schema.const('openai').description('OpenAI'),
         Schema.const('anthropic').description('Anthropic'),
         Schema.const('gemini').description('Google Gemini')
-      ]).required().description('模型提供商'),
-      baseURL: Schema.string().required().description('API 基础地址'),
-      apiKey: Schema.string().required().role('secret').description('API 密钥'),
-      model: Schema.string().required().description('模型名称'),
+      ]).default('openai').description('模型提供商'),
+      baseURL: Schema.string().description('API 基础地址'),
+      apiKey: Schema.string().role('secret').description('API 密钥'),
+      model: Schema.string().description('模型名称'),
       customHeaders: Schema.dict(Schema.string()).description('自定义请求头'),
       temperature: Schema.number().min(0).max(2).default(0.7).description('温度参数'),
       maxTokens: Schema.number().min(1).default(2000).description('最大生成token数'),
@@ -121,27 +121,33 @@ export const Config = Schema.object({
     }).description('会话配置')
   }).description('LLM 配置'),
 
-  tts: Schema.object({
-    provider: Schema.union([
-      Schema.const('volcengine').description('火山方舟TTS'),
-      Schema.const('clone').description('声音克隆')
-    ]).default('volcengine').description('TTS提供商'),
-
-    volcengine: Schema.object({
-      baseURL: Schema.string().default('https://openspeech.bytedance.com').description('API 地址'),
-      appId: Schema.string().required().description('应用ID'),
-      token: Schema.string().required().role('secret').description('Token'),
-      cluster: Schema.string().required().description('集群'),
-      accessToken: Schema.string().required().role('secret').description('访问令牌'),
-      voiceType: Schema.string().required().description('音色ID')
-    }).description('火山方舟TTS配置'),
-
-    clone: Schema.object({
-      baseURL: Schema.string().required().description('API 地址'),
-      apiKey: Schema.string().required().role('secret').description('API 密钥'),
-      voiceId: Schema.string().required().description('声音ID')
-    }).description('声音克隆配置')
-  }).description('TTS 配置'),
+  tts: Schema.intersect([
+    Schema.object({
+      provider: Schema.union([
+        Schema.const('volcengine').description('火山方舟TTS'),
+        Schema.const('clone').description('声音克隆')
+      ]).default('volcengine').description('TTS提供商')
+    }),
+    Schema.union([
+      Schema.object({
+        provider: Schema.const('volcengine'),
+        baseURL: Schema.string().default('https://openspeech.bytedance.com').description('API 地址'),
+        appId: Schema.string().description('应用ID'),
+        token: Schema.string().role('secret').description('Token'),
+        cluster: Schema.union([
+          Schema.const('volcano_tts').description('通用语音合成 (volcano_tts)'),
+          Schema.const('volcano_mega').description('精品大模型语音合成 (volcano_mega)')
+        ]).default('volcano_tts').description('集群类型'),
+        voiceType: Schema.string().description('音色ID')
+      }).description('火山方舟TTS配置'),
+      Schema.object({
+        provider: Schema.const('clone'),
+        baseURL: Schema.string().description('API 地址'),
+        apiKey: Schema.string().role('secret').description('API 密钥'),
+        voiceId: Schema.string().description('声音ID')
+      }).description('声音克隆配置')
+    ])
+  ]).description('TTS 配置'),
 
   output: Schema.object({
     enableDanmaku: Schema.boolean().default(true).description('启用弹幕输出'),
