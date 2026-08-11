@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vtuber Backend</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: linear-gradient(135deg, #0A0D12 0%, #161D2B 100%);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .container {
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .logo {
+      font-size: 4rem;
+      margin-bottom: 1rem;
+    }
+
+    .title {
+      font-size: clamp(1.5rem, 3vw, 2rem);
+      font-weight: 600;
+      color: #F3F4F6;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      font-size: clamp(1rem, 2vw, 1.25rem);
+      color: rgba(229, 231, 235, 0.6);
+      margin-bottom: 2rem;
+    }
+
+    .info {
+      background: rgba(15, 19, 28, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 1.5rem;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    .info-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: clamp(0.875rem, 1.5vw, 1rem);
+    }
+
+    .info-item:last-child {
+      border-bottom: none;
+    }
+
+    .info-label {
+      color: rgba(229, 231, 235, 0.6);
+    }
+
+    .info-value {
+      color: #38BDF8;
+      font-weight: 500;
+    }
+
+    .status {
+      margin-top: 2rem;
+      padding: 1rem;
+      background: rgba(110, 231, 183, 0.1);
+      border: 1px solid rgba(110, 231, 183, 0.3);
+      border-radius: 12px;
+      color: #6EE7B7;
+      font-size: clamp(0.875rem, 1.5vw, 1rem);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">🎭</div>
+    <div class="title">Vtuber Backend</div>
+    <div class="subtitle">独立后端服务器</div>
+
+    <div class="info">
+      <div class="info-item">
+        <span class="info-label">版本</span>
+        <span class="info-value" id="version">0.0.1</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Electron</span>
+        <span class="info-value" id="electronVersion">-</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Node.js</span>
+        <span class="info-value" id="nodeVersion">-</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Chrome</span>
+        <span class="info-value" id="chromeVersion">-</span>
+      </div>
+    </div>
+
+    <div class="status">
+      ✓ 后端服务正在运行
+    </div>
+  </div>
+
+  <script>
+    // 显示版本信息
+    if (window.versions) {
+      document.getElementById('electronVersion').textContent = window.versions.electron || '-';
+      document.getElementById('nodeVersion').textContent = window.versions.node || '-';
+      document.getElementById('chromeVersion').textContent = window.versions.chrome || '-';
+    }
+  </script>
+</body>
+</html>

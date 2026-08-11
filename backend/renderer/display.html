@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Display Board</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: linear-gradient(135deg, #0A0D12 0%, #161D2B 100%);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 800px;
+      background: rgba(15, 19, 28, 0.9);
+      border-radius: 24px;
+      padding: clamp(2rem, 4vw, 3rem);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .text-content {
+      color: #E5E7EB;
+      font-size: clamp(1.25rem, 2.5vw, 1.75rem);
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      animation: fadeIn 0.5s ease-out;
+    }
+
+    .text-content.emotion-happy {
+      color: #6EE7B7;
+    }
+
+    .text-content.emotion-sad {
+      color: #93C5FD;
+    }
+
+    .text-content.emotion-excited {
+      color: #FCD34D;
+    }
+
+    .text-content.emotion-angry {
+      color: #F87171;
+    }
+
+    .text-content.emotion-neutral {
+      color: #E5E7EB;
+    }
+
+    .timestamp {
+      margin-top: 1.5rem;
+      color: rgba(229, 231, 235, 0.4);
+      font-size: clamp(0.875rem, 1.5vw, 1rem);
+      text-align: right;
+    }
+
+    .markdown-content {
+      color: #E5E7EB;
+      line-height: 1.6;
+    }
+
+    .markdown-content h1,
+    .markdown-content h2,
+    .markdown-content h3 {
+      margin: 1.5rem 0 1rem;
+      color: #F3F4F6;
+      font-weight: 600;
+    }
+
+    .markdown-content h1 {
+      font-size: clamp(1.75rem, 3vw, 2.25rem);
+      border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+      padding-bottom: 0.5rem;
+    }
+
+    .markdown-content h2 {
+      font-size: clamp(1.5rem, 2.5vw, 1.875rem);
+    }
+
+    .markdown-content h3 {
+      font-size: clamp(1.25rem, 2vw, 1.5rem);
+    }
+
+    .markdown-content p {
+      margin: 0.75rem 0;
+    }
+
+    .markdown-content code {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.9em;
+      color: #38BDF8;
+    }
+
+    .markdown-content pre {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 1rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+
+    .markdown-content pre code {
+      background: none;
+      padding: 0;
+    }
+
+    .markdown-content ul,
+    .markdown-content ol {
+      margin: 0.75rem 0;
+      padding-left: 2rem;
+    }
+
+    .markdown-content li {
+      margin: 0.5rem 0;
+    }
+
+    .markdown-content blockquote {
+      border-left: 4px solid rgba(110, 231, 183, 0.5);
+      padding-left: 1rem;
+      margin: 1rem 0;
+      color: rgba(229, 231, 235, 0.8);
+    }
+
+    .markdown-content a {
+      color: #38BDF8;
+      text-decoration: none;
+    }
+
+    .markdown-content a:hover {
+      text-decoration: underline;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .fade-out {
+      animation: fadeOut 0.3s ease-out forwards;
+    }
+
+    @keyframes fadeOut {
+      from {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      to {
+        opacity: 0;
+        transform: translateY(-20px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="text-content" id="textContent">
+      等待内容显示...
+    </div>
+    <div class="timestamp" id="timestamp"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked@11.0.0/marked.min.js"></script>
+
+  <script>
+    const textContent = document.getElementById('textContent');
+    const timestamp = document.getElementById('timestamp');
+
+    let currentEmotion = 'neutral';
+
+    // 更新显示内容
+    function updateDisplay(data) {
+      const { text, style, emotion } = data;
+
+      // 添加淡出动画
+      textContent.classList.add('fade-out');
+
+      setTimeout(() => {
+        // 移除旧的情感类
+        textContent.className = 'text-content';
+
+        // 设置新情感
+        currentEmotion = emotion || 'neutral';
+        if (currentEmotion) {
+          textContent.classList.add(`emotion-${currentEmotion}`);
+        }
+
+        // 根据样式处理内容
+        if (style === 'markdown') {
+          textContent.classList.add('markdown-content');
+          textContent.innerHTML = marked.parse(text);
+        } else if (style === 'html') {
+          textContent.innerHTML = text;
+        } else {
+          textContent.textContent = text;
+        }
+
+        // 更新时间戳
+        const now = new Date();
+        timestamp.textContent = now.toLocaleTimeString('zh-CN');
+
+        // 移除淡出，触发淡入
+        textContent.classList.remove('fade-out');
+      }, 300);
+    }
+
+    // 清空内容
+    function clearDisplay() {
+      textContent.classList.add('fade-out');
+      setTimeout(() => {
+        textContent.textContent = '等待内容显示...';
+        textContent.className = 'text-content';
+        timestamp.textContent = '';
+        textContent.classList.remove('fade-out');
+      }, 300);
+    }
+
+    // IPC 通信（Electron）
+    if (window.electronAPI) {
+      window.electronAPI.on('display.update', (data) => {
+        updateDisplay(data);
+      });
+
+      window.electronAPI.on('display.clear', () => {
+        clearDisplay();
+      });
+    }
+
+    // 测试用：监听 WebSocket 消息
+    if (typeof WebSocket !== 'undefined') {
+      const ws = new WebSocket('ws://localhost:19264');
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.method === 'display.update') {
+            updateDisplay(message.params);
+          } else if (message.method === 'display.clear') {
+            clearDisplay();
+          }
+        } catch (error) {
+          console.error('Failed to parse message:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,189 @@
+# Koishi Vtuber 插件配置示例
+# 复制此文件并根据需要修改
+
+# ==================== 事件接收器配置 ====================
+eventReceiver:
+  # 启用的事件类型
+  enabledEvents:
+    danmaku: true        # 弹幕
+    gift: true           # 礼物
+    superchat: true      # 醒目留言
+    enter: false         # 进入直播间（建议关闭，事件过多）
+    follow: true         # 关注
+    like: false          # 点赞（建议关闭，事件过多）
+    guard: true          # 上舰
+    liveStart: true      # 开播
+    liveEnd: true        # 下播
+
+  # 事件过滤器
+  filters:
+    minGiftPrice: 100              # 最小礼物价格（金瓜子）
+    minSuperchatAmount: 10         # 最小SC金额（元）
+    minFansMedalLevel: 0           # 最小粉丝勋章等级
+    guardLevelFilter: [1, 2, 3]    # 舰长等级过滤（1=总督，2=提督，3=舰长）
+
+# ==================== 触发器配置 ====================
+triggers:
+  # 立即触发：醒目留言和上舰
+  - mode: immediate
+    eventTypes: [superchat, guard]
+
+  # 延迟合并触发：弹幕（5秒内最多合并10条）
+  - mode: debounce
+    eventTypes: [danmaku]
+    delay: 5000
+    maxBatch: 10
+
+  # 延迟合并触发：礼物（3秒内最多合并5个）
+  - mode: debounce
+    eventTypes: [gift]
+    delay: 3000
+    maxBatch: 5
+
+  # 跨类型合并：关注事件带上最近的弹幕
+  - mode: cross-merge
+    primaryEvent: follow
+    mergeEvents: [danmaku]
+    window: 60000
+
+  # 定时任务示例：每10分钟报告直播间数据
+  # - mode: scheduled
+  #   cron: "*/10 * * * *"
+  #   actions:
+  #     - type: llm-request
+  #       config:
+  #         prompt: "总结最近10分钟的直播间互动情况"
+
+# 全局限流
+rateLimit:
+  maxRequestsPerMinute: 10      # 每分钟最多10次LLM请求
+  cooldownAfterError: 30000     # 错误后冷却30秒
+
+# ==================== LLM 配置 ====================
+llm:
+  # Provider: openai / anthropic / gemini
+  provider: anthropic
+
+  # API 配置
+  apiKey: sk-ant-xxx
+  model: claude-sonnet-4-20250514
+  baseUrl: https://api.anthropic.com  # 可选，自定义API地址
+
+  # 请求参数
+  temperature: 0.8
+  maxTokens: 1000
+
+  # 系统提示词
+  systemPrompt: |
+    你是一个虚拟主播，名字叫小艾。
+
+    ## 角色设定
+    - 性格：活泼、可爱、热情、善于活跃气氛
+    - 说话风格：轻松自然，偶尔使用可爱的语气词（如"呢"、"哦"、"呀"）
+    - 特点：喜欢唱歌、会玩游戏、对粉丝很友好
+
+    ## 回复规则
+    1. 根据直播间事件自然回复
+    2. 感谢礼物时要真诚热情
+    3. 回复弹幕时要有趣且相关
+    4. 欢迎新关注者
+    5. 定期活跃气氛
+
+    ## 可用变量
+    - {{danmaku_history}}: 最近的弹幕历史
+    - {{gift_history}}: 最近的礼物记录
+    - {{user_name}}: 当前用户名
+    - {{user_uid}}: 用户UID
+    - {{room_id}}: 直播间ID
+    - {{event_type}}: 事件类型
+
+    ## 输出格式
+    - 默认：直接发弹幕
+    - [TTS]文本[/TTS]：语音播放
+    - [DISPLAY]文本[/DISPLAY]：展示板渲染
+
+    ## 工具使用
+    你可以调用以下工具：
+    - live2d_set_expression: 设置表情（happy/sad/surprised等）
+    - live2d_play_motion: 播放动作
+    - music_search: 搜索歌曲
+    - music_add_song: 添加歌曲到播放列表
+    - display_show_text: 在展示板显示文本
+
+  # 用户提示词模板（支持变量替换）
+  userPromptTemplate: |
+    ## 直播间事件
+    事件类型：{{event_type}}
+
+    {{#if user_name}}
+    用户：{{user_name}}
+    {{/if}}
+
+    {{#if danmaku_history}}
+    ## 最近弹幕
+    {{danmaku_history}}
+    {{/if}}
+
+    {{#if gift_history}}
+    ## 最近礼物
+    {{gift_history}}
+    {{/if}}
+
+    请自然地回复这个事件。
+
+# ==================== TTS 配置 ====================
+tts:
+  # Provider: volcengine / custom
+  provider: volcengine
+
+  # 火山方舟配置
+  apiKey: your-volcengine-api-key
+  appId: your-app-id
+
+  # 声音设置
+  voiceType: zh_female_tianmeixiaoyuan  # 天美小圆
+  speed: 1.0      # 语速（0.5 - 2.0）
+  volume: 1.0     # 音量（0.1 - 2.0）
+  pitch: 1.0      # 音调（0.5 - 2.0）
+
+  # 可选：声音克隆
+  # useCloning: true
+  # cloningVoiceId: your-voice-id
+
+# ==================== 后端连接配置 ====================
+backend:
+  enabled: true
+  host: localhost
+  port: 8765
+  reconnectInterval: 5000  # 重连间隔（毫秒）
+  timeout: 30000           # 请求超时（毫秒）
+
+# ==================== 输出配置 ====================
+output:
+  # 弹幕发送
+  danmaku:
+    enabled: true
+    cooldown: 2000  # 发送间隔（毫秒）
+
+  # 展示板
+  display:
+    enabled: true
+    defaultDuration: 5000  # 默认显示时长（毫秒）
+
+  # TTS 播放
+  audio:
+    enabled: true
+    outputDevice: default  # 输出设备
+
+# ==================== 缓存配置 ====================
+cache:
+  danmakuHistorySize: 50   # 缓存的弹幕数量
+  giftHistorySize: 20      # 缓存的礼物数量
+  eventHistoryDuration: 300000  # 事件历史保留时间（5分钟）
+
+# ==================== 日志配置 ====================
+logging:
+  level: info  # debug / info / warn / error
+  logEvents: true
+  logLLMRequests: true
+  logLLMResponses: true

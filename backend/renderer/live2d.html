@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live2D Display</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    #canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #ffffff;
+      font-family: sans-serif;
+      font-size: 18px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    }
+
+    .error {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #ff4444;
+      font-family: sans-serif;
+      font-size: 16px;
+      text-align: center;
+      padding: 20px;
+      background: rgba(0,0,0,0.8);
+      border-radius: 8px;
+      max-width: 80%;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div class="loading" id="loading">加载中...</div>
+  <div class="error" id="error" style="display: none;"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/pixi.js@7/dist/pixi.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.5.0/dist/index.min.js"></script>
+
+  <script>
+    const { Application } = PIXI;
+    const { Live2DModel } = PIXI.live2d;
+
+    let app;
+    let model;
+    let currentScale = 1;
+    let currentX = 0;
+    let currentY = 0;
+
+    // 初始化 PIXI 应用
+    async function initApp() {
+      app = new Application({
+        view: document.getElementById('canvas'),
+        width: window.innerWidth,
+        height: window.innerHeight,
+        transparent: true,
+        backgroundAlpha: 0,
+        antialias: true,
+        resolution: window.devicePixelRatio || 1,
+        autoDensity: true
+      });
+
+      // 监听窗口大小变化
+      window.addEventListener('resize', () => {
+        app.renderer.resize(window.innerWidth, window.innerHeight);
+        if (model) {
+          updateModelTransform();
+        }
+      });
+
+      hideLoading();
+    }
+
+    // 加载 Live2D 模型
+    async function loadModel(modelPath) {
+      showLoading('加载模型中...');
+
+      try {
+        // 移除旧模型
+        if (model) {
+          app.stage.removeChild(model);
+          model.destroy();
+        }
+
+        // 加载新模型
+        model = await Live2DModel.from(modelPath);
+
+        // 缩放模型适应窗口
+        const scale = Math.min(
+          window.innerWidth / model.width,
+          window.innerHeight / model.height
+        ) * 0.8;
+
+        model.scale.set(scale * currentScale);
+        model.x = window.innerWidth / 2 + currentX;
+        model.y = window.innerHeight / 2 + currentY;
+        model.anchor.set(0.5, 0.5);
+
+        // 启用交互
+        model.interactive = true;
+        model.buttonMode = true;
+
+        // 点击播放随机动作
+        model.on('pointerdown', () => {
+          if (model.internalModel.motionManager) {
+            const groups = model.internalModel.motionManager.definitions;
+            const groupNames = Object.keys(groups);
+            if (groupNames.length > 0) {
+              const randomGroup = groupNames[Math.floor(Math.random() * groupNames.length)];
+              const groupMotions = groups[randomGroup];
+              if (groupMotions && groupMotions.length > 0) {
+                const randomIndex = Math.floor(Math.random() * groupMotions.length);
+                playMotion(randomGroup, randomIndex);
+              }
+            }
+          }
+        });
+
+        app.stage.addChild(model);
+
+        hideLoading();
+        console.log('Model loaded:', modelPath);
+      } catch (error) {
+        showError('加载模型失败: ' + error.message);
+        console.error('Failed to load model:', error);
+      }
+    }
+
+    // 设置表情
+    function setExpression(expressionName) {
+      if (!model) return;
+
+      try {
+        const expressionManager = model.internalModel.motionManager.expressionManager;
+        if (expressionManager) {
+          expressionManager.setExpression(expressionName);
+          console.log('Expression set:', expressionName);
+        }
+      } catch (error) {
+        console.error('Failed to set expression:', error);
+      }
+    }
+
+    // 播放动作
+    function playMotion(group, index) {
+      if (!model) return;
+
+      try {
+        model.motion(group, index);
+        console.log('Motion played:', group, index);
+      } catch (error) {
+        console.error('Failed to play motion:', error);
+      }
+    }
+
+    // 设置缩放
+    function setScale(scale) {
+      currentScale = scale;
+      if (model) {
+        updateModelTransform();
+      }
+    }
+
+    // 设置位置
+    function setPosition(x, y) {
+      currentX = x;
+      currentY = y;
+      if (model) {
+        updateModelTransform();
+      }
+    }
+
+    // 更新模型变换
+    function updateModelTransform() {
+      const baseScale = Math.min(
+        window.innerWidth / model.width,
+        window.innerHeight / model.height
+      ) * 0.8;
+
+      model.scale.set(baseScale * currentScale);
+      model.x = window.innerWidth / 2 + currentX;
+      model.y = window.innerHeight / 2 + currentY;
+    }
+
+    // UI 辅助函数
+    function showLoading(text = '加载中...') {
+      document.getElementById('loading').textContent = text;
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('error').style.display = 'none';
+    }
+
+    function hideLoading() {
+      document.getElementById('loading').style.display = 'none';
+    }
+
+    function showError(message) {
+      document.getElementById('error').textContent = message;
+      document.getElementById('error').style.display = 'block';
+      document.getElementById('loading').style.display = 'none';
+    }
+
+    // IPC 通信（Electron）
+    if (window.electronAPI) {
+      window.electronAPI.on('live2d:load', (data) => {
+        loadModel(data.modelPath);
+      });
+
+      window.electronAPI.on('live2d:expression', (data) => {
+        setExpression(data.expression);
+      });
+
+      window.electronAPI.on('live2d:motion', (data) => {
+        playMotion(data.group, data.index);
+      });
+
+      window.electronAPI.on('live2d:scale', (data) => {
+        setScale(data.scale);
+      });
+
+      window.electronAPI.on('live2d:position', (data) => {
+        setPosition(data.x, data.y);
+      });
+    }
+
+    // 初始化
+    initApp();
+  </script>
+</body>
+</html>
