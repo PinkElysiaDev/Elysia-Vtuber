@@ -1,0 +1,14 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 19264
+  },
+  "music": {
+    "enableNetease": true,
+    "enableQQ": true,
+    "enableBilibili": false,
+    "defaultVolume": 0.8,
+    "maxDuration": 600,
+    "idlePlaylist": []
+  }
+}

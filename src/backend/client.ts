@@ -318,4 +318,11 @@ export class BackendClient {
   async getNowPlaying(): Promise<any> {
     return await this.call('music.getNowPlaying', {})
   }
+
+  /**
+   * 请求后端停止进程
+   */
+  async stopBackendProcess(): Promise<void> {
+    await this.call('system.shutdown', {})
+  }
 }

@@ -58,24 +58,28 @@ export const Config = Schema.object({
   }).description('事件接收器配置'),
 
   triggers: Schema.object({
-    triggers: Schema.array(Schema.union([
+    triggers: Schema.array(Schema.intersect([
       Schema.object({
-        id: Schema.string().required(),
-        name: Schema.string().required(),
-        enabled: Schema.boolean().default(true),
-        mode: Schema.const('immediate').required(),
-        eventTypes: Schema.array(Schema.string()).required()
-      }).description('立即触发'),
-
-      Schema.object({
-        id: Schema.string().required(),
-        name: Schema.string().required(),
-        enabled: Schema.boolean().default(true),
-        mode: Schema.const('debounce').required(),
-        eventTypes: Schema.array(Schema.string()).required(),
-        delay: Schema.number().default(3000).description('延迟时间(ms)'),
-        maxBatch: Schema.number().default(10).description('最大合并数量')
-      }).description('延迟合并触发')
+        id: Schema.string().required().description('触发器 ID'),
+        name: Schema.string().required().description('触发器名称'),
+        enabled: Schema.boolean().default(true).description('是否启用'),
+        mode: Schema.union([
+          Schema.const('immediate').description('立即触发'),
+          Schema.const('debounce').description('延迟合并触发')
+        ]).default('immediate').description('触发模式')
+      }),
+      Schema.union([
+        Schema.object({
+          mode: Schema.const('immediate'),
+          eventTypes: Schema.array(Schema.string()).default(['danmaku']).description('触发事件类型列表')
+        }),
+        Schema.object({
+          mode: Schema.const('debounce'),
+          eventTypes: Schema.array(Schema.string()).default(['danmaku']).description('触发事件类型列表'),
+          delay: Schema.number().default(3000).description('延迟时间(ms)'),
+          maxBatch: Schema.number().default(10).description('最大合并数量')
+        })
+      ])
     ])).default([]).description('触发器列表'),
 
     rateLimit: Schema.object({

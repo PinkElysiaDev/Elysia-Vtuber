@@ -11,6 +11,7 @@ import { LLMRequestManager } from './llm/manager'
 import { TTSManager } from './tts/manager'
 import { OutputHandler } from './output/handler'
 import { BackendClient } from './backend/client'
+import { BackendProcessManager } from './backend/process'
 import { registerAllTools } from './llm/tools'
 
 export const name = 'vtuber'
@@ -31,9 +32,13 @@ export function apply(ctx: Context, config: Config) {
 
   logger.info('Koishi Vtuber 插件启动中...')
 
-  // 创建后端客户端
+  // 创建后端进程管理器与客户端
   let backendClient: BackendClient | undefined
+  let processManager: BackendProcessManager | undefined
+
   if (config.backend?.enabled) {
+    processManager = new BackendProcessManager(config.backend, logger)
+
     backendClient = new BackendClient({
       host: config.backend.host || 'localhost',
       port: config.backend.port || 19264,
@@ -41,13 +46,15 @@ export function apply(ctx: Context, config: Config) {
       timeout: config.backend.timeout || 30000
     }, logger)
 
-    // 连接到后端
-    backendClient.connect().catch(error => {
-      logger.error('连接后端失败:', error)
+    // 启动检测：无后端则独立拉起
+    processManager.startBackend().then(() => {
+      return backendClient!.connect()
+    }).catch(error => {
+      logger.error('后端启动或连接失败:', error)
       logger.warn('将在后台自动重连')
     })
 
-    logger.info('后端客户端已初始化')
+    logger.info('后端模块已初始化')
   }
 
   // 创建事件缓存
@@ -199,24 +206,58 @@ export function apply(ctx: Context, config: Config) {
       }
     })
 
-  ctx.command('vtuber.backend-status', '查看后端状态')
-    .action(() => {
-      if (!backendClient) {
-        return '后端未启用'
+  ctx.command('vtuber.backend.status', '查看后端状态')
+    .action(async () => {
+      if (!backendClient || !processManager) {
+        return '后端未在配置中启用'
       }
-      return backendClient.isConnected() ? '后端已连接' : '后端未连接'
+      const isConnected = backendClient.isConnected()
+      const isPortOpen = await processManager.isPortOpen()
+      return [
+        '=== 后端服务状态 ===',
+        `TCP 端口监听: ${isPortOpen ? '✓ 已就绪' : '✗ 未就绪'}`,
+        `WebSocket 连接: ${isConnected ? '✓ 已连接' : '✗ 未连接'}`
+      ].join('\n')
     })
 
-  ctx.command('vtuber.test-backend', '测试后端连接')
+  ctx.command('vtuber.backend.start', '启动独立后端进程')
+    .action(async () => {
+      if (!processManager) {
+        return '后端未在配置中启用'
+      }
+      const ok = await processManager.startBackend()
+      if (ok && backendClient && !backendClient.isConnected()) {
+        await backendClient.connect().catch(() => {})
+      }
+      return ok ? '后端进程已启动/确认运行中' : '后端进程启动失败'
+    })
+
+  ctx.command('vtuber.backend.stop', '请求停止独立后端进程')
     .action(async () => {
       if (!backendClient) {
-        return '后端未启用'
+        return '后端未在配置中启用'
       }
       try {
-        await backendClient.displayText('测试消息', 'plain', 'neutral')
-        return '后端测试成功'
+        await backendClient.stopBackendProcess()
+        return '已成功发送停止命令到后端进程'
       } catch (error) {
-        return `后端测试失败: ${error.message}`
+        return `停止后端服务失败或未连接: ${error.message}`
       }
+    })
+
+  ctx.command('vtuber.backend.restart', '重启独立后端进程')
+    .action(async () => {
+      if (!backendClient || !processManager) {
+        return '后端未在配置中启用'
+      }
+      try {
+        await backendClient.stopBackendProcess().catch(() => {})
+      } catch {}
+      await new Promise(r => setTimeout(r, 1000))
+      const ok = await processManager.startBackend()
+      if (ok && !backendClient.isConnected()) {
+        await backendClient.connect().catch(() => {})
+      }
+      return ok ? '后端进程已重启' : '后端进程重启失败'
     })
 }

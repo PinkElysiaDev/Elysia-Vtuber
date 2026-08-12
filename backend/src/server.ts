@@ -223,5 +223,13 @@ export class BackendServer {
       this.broadcast('tts.audio', { audio, duration })
       return { success: true }
     })
+
+    // ========== 系统控制 ==========
+    this.rpcHandler.register('system.shutdown', async () => {
+      setTimeout(() => {
+        process.exit(0)
+      }, 500)
+      return { success: true }
+    })
   }
 }
