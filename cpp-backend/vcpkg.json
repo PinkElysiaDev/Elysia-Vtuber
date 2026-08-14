@@ -1,0 +1,9 @@
+{
+  "name": "vtuber-backend",
+  "version": "0.1.0",
+  "builtin-baseline": "e0612b42ce44e55a0e630f2ee9d3c533a63d8bc1",
+  "dependencies": [
+    "boost-system",
+    "openssl"
+  ]
+}

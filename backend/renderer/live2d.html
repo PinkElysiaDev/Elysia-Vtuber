@@ -3,73 +3,68 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Live2D Display</title>
+  <title>Live2D Stage Overlay</title>
+  <link rel="stylesheet" href="assets/css/theme.css">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
     body {
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
-      background: transparent;
+      background: transparent !important;
+      background-image: none !important;
     }
 
     #canvas {
-      width: 100%;
-      height: 100%;
+      width: 100vw;
+      height: 100vh;
       display: block;
     }
 
-    .loading {
+    .particles-bg {
       position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      color: #ffffff;
-      font-family: sans-serif;
-      font-size: 18px;
-      text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
     }
 
-    .error {
+    .emotion-toast {
       position: absolute;
-      top: 50%;
+      bottom: 24px;
       left: 50%;
-      transform: translate(-50%, -50%);
-      color: #ff4444;
-      font-family: sans-serif;
-      font-size: 16px;
-      text-align: center;
-      padding: 20px;
-      background: rgba(0,0,0,0.8);
-      border-radius: 8px;
-      max-width: 80%;
+      transform: translateX(-50%);
+      padding: 8px 18px;
+      border-radius: var(--radius-full);
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .emotion-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(-10px);
     }
   </style>
 </head>
 <body>
+  <canvas class="particles-bg" id="particleCanvas"></canvas>
   <canvas id="canvas"></canvas>
-  <div class="loading" id="loading">加载中...</div>
-  <div class="error" id="error" style="display: none;"></div>
+  <div class="emotion-toast glass-panel" id="toast">Live2D Stage Ready</div>
 
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@7/dist/pixi.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.5.0/dist/index.min.js"></script>
+  <script src="assets/js/rpc-client.js"></script>
+  <script src="assets/js/particles.js"></script>
 
   <script>
     const { Application } = PIXI;
     const { Live2DModel } = PIXI.live2d;
 
-    let app;
-    let model;
-    let currentScale = 1;
-    let currentX = 0;
-    let currentY = 0;
+    let app, model;
+    const particleSys = new ParticleSystem(document.getElementById('particleCanvas'));
+    particleSys.start();
 
-    // 初始化 PIXI 应用
     async function initApp() {
       app = new Application({
         view: document.getElementById('canvas'),
@@ -82,169 +77,60 @@
         autoDensity: true
       });
 
-      // 监听窗口大小变化
       window.addEventListener('resize', () => {
         app.renderer.resize(window.innerWidth, window.innerHeight);
-        if (model) {
-          updateModelTransform();
-        }
+        if (model) updateModelTransform();
       });
-
-      hideLoading();
     }
 
-    // 加载 Live2D 模型
     async function loadModel(modelPath) {
-      showLoading('加载模型中...');
-
       try {
-        // 移除旧模型
         if (model) {
           app.stage.removeChild(model);
           model.destroy();
         }
-
-        // 加载新模型
         model = await Live2DModel.from(modelPath);
+        updateModelTransform();
 
-        // 缩放模型适应窗口
-        const scale = Math.min(
-          window.innerWidth / model.width,
-          window.innerHeight / model.height
-        ) * 0.8;
-
-        model.scale.set(scale * currentScale);
-        model.x = window.innerWidth / 2 + currentX;
-        model.y = window.innerHeight / 2 + currentY;
-        model.anchor.set(0.5, 0.5);
-
-        // 启用交互
         model.interactive = true;
         model.buttonMode = true;
-
-        // 点击播放随机动作
         model.on('pointerdown', () => {
-          if (model.internalModel.motionManager) {
-            const groups = model.internalModel.motionManager.definitions;
-            const groupNames = Object.keys(groups);
-            if (groupNames.length > 0) {
-              const randomGroup = groupNames[Math.floor(Math.random() * groupNames.length)];
-              const groupMotions = groups[randomGroup];
-              if (groupMotions && groupMotions.length > 0) {
-                const randomIndex = Math.floor(Math.random() * groupMotions.length);
-                playMotion(randomGroup, randomIndex);
-              }
-            }
-          }
+          particleSys.burst(model.x, model.y, 25);
         });
 
         app.stage.addChild(model);
-
-        hideLoading();
-        console.log('Model loaded:', modelPath);
-      } catch (error) {
-        showError('加载模型失败: ' + error.message);
-        console.error('Failed to load model:', error);
+        showToast('Model loaded successfully');
+      } catch (err) {
+        showToast('Load failed: ' + err.message);
       }
     }
 
-    // 设置表情
-    function setExpression(expressionName) {
-      if (!model) return;
-
-      try {
-        const expressionManager = model.internalModel.motionManager.expressionManager;
-        if (expressionManager) {
-          expressionManager.setExpression(expressionName);
-          console.log('Expression set:', expressionName);
-        }
-      } catch (error) {
-        console.error('Failed to set expression:', error);
-      }
-    }
-
-    // 播放动作
-    function playMotion(group, index) {
-      if (!model) return;
-
-      try {
-        model.motion(group, index);
-        console.log('Motion played:', group, index);
-      } catch (error) {
-        console.error('Failed to play motion:', error);
-      }
-    }
-
-    // 设置缩放
-    function setScale(scale) {
-      currentScale = scale;
-      if (model) {
-        updateModelTransform();
-      }
-    }
-
-    // 设置位置
-    function setPosition(x, y) {
-      currentX = x;
-      currentY = y;
-      if (model) {
-        updateModelTransform();
-      }
-    }
-
-    // 更新模型变换
     function updateModelTransform() {
-      const baseScale = Math.min(
-        window.innerWidth / model.width,
-        window.innerHeight / model.height
-      ) * 0.8;
-
-      model.scale.set(baseScale * currentScale);
-      model.x = window.innerWidth / 2 + currentX;
-      model.y = window.innerHeight / 2 + currentY;
+      if (!model) return;
+      const scale = Math.min(window.innerWidth / model.width, window.innerHeight / model.height) * 0.85;
+      model.scale.set(scale);
+      model.x = window.innerWidth / 2;
+      model.y = window.innerHeight / 2;
+      model.anchor.set(0.5, 0.5);
     }
 
-    // UI 辅助函数
-    function showLoading(text = '加载中...') {
-      document.getElementById('loading').textContent = text;
-      document.getElementById('loading').style.display = 'block';
-      document.getElementById('error').style.display = 'none';
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
     }
 
-    function hideLoading() {
-      document.getElementById('loading').style.display = 'none';
-    }
+    window.vtuberRPC.on('live2d:expression', (data) => {
+      if (model && model.internalModel.motionManager.expressionManager) {
+        model.internalModel.motionManager.expressionManager.setExpression(data.expression);
+        showToast(`Expression: ${data.expression}`);
+        particleSys.burst(window.innerWidth / 2, window.innerHeight / 2, 15);
+      }
+    });
 
-    function showError(message) {
-      document.getElementById('error').textContent = message;
-      document.getElementById('error').style.display = 'block';
-      document.getElementById('loading').style.display = 'none';
-    }
+    window.vtuberRPC.on('live2d:load', (data) => loadModel(data.modelPath));
 
-    // IPC 通信（Electron）
-    if (window.electronAPI) {
-      window.electronAPI.on('live2d:load', (data) => {
-        loadModel(data.modelPath);
-      });
-
-      window.electronAPI.on('live2d:expression', (data) => {
-        setExpression(data.expression);
-      });
-
-      window.electronAPI.on('live2d:motion', (data) => {
-        playMotion(data.group, data.index);
-      });
-
-      window.electronAPI.on('live2d:scale', (data) => {
-        setScale(data.scale);
-      });
-
-      window.electronAPI.on('live2d:position', (data) => {
-        setPosition(data.x, data.y);
-      });
-    }
-
-    // 初始化
     initApp();
   </script>
 </body>

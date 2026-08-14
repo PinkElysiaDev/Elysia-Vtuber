@@ -17,3 +17,14 @@ tsconfig.tsbuildinfo
 *.njsproj
 *.sln
 package-lock.json
+
+**/build/
+**/vcpkg_installed/
+backend/data/
+*.log
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.obj

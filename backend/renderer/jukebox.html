@@ -3,371 +3,152 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>点歌机</title>
+  <title>Jukebox Overlay</title>
+  <link rel="stylesheet" href="assets/css/theme.css">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
     body {
-      width: 100%;
-      height: 100vh;
-      background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
-      color: #F8FAFC;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      overflow: hidden;
+      background: transparent !important;
+      background-image: none !important;
       display: flex;
-      flex-direction: column;
-    }
-
-    #player {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       padding: 24px;
     }
 
-    #cover-container {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 24px;
-    }
-
-    #cover {
-      width: 280px;
-      height: 280px;
-      border-radius: 12px;
-      object-fit: cover;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-      border: 1px solid rgba(248, 250, 252, 0.1);
-    }
-
-    #info {
-      text-align: center;
-      margin-bottom: 24px;
-    }
-
-    #title {
-      font-size: 24px;
-      font-weight: 600;
-      margin-bottom: 8px;
-      color: #F8FAFC;
-    }
-
-    #artist {
-      font-size: 16px;
-      color: #94A3B8;
-    }
-
-    #progress-container {
-      margin-bottom: 16px;
-    }
-
-    #progress-bar {
-      width: 100%;
-      height: 4px;
-      background: rgba(248, 250, 252, 0.1);
-      border-radius: 2px;
+    .jukebox-card {
+      width: 440px;
+      padding: 24px;
+      position: relative;
       overflow: hidden;
-      margin-bottom: 8px;
     }
 
-    #progress-fill {
-      height: 100%;
-      background: #38BDF8;
-      width: 0%;
-      transition: width 0.1s linear;
-    }
-
-    #time {
+    .disc-container {
       display: flex;
-      justify-content: space-between;
-      font-size: 12px;
-      color: #64748B;
-      font-variant-numeric: tabular-nums;
+      align-items: center;
+      gap: 20px;
+      margin-bottom: 20px;
     }
 
-    #controls {
+    .vinyl-disc {
+      position: relative;
+      width: 110px;
+      height: 110px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #18181b 35%, #27272a 36%, #09090b 70%);
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5), 0 0 20px var(--accent-cyan-glow);
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 16px;
+      flex-shrink: 0;
+      transition: transform 0.5s ease;
     }
 
-    button {
-      background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.2);
-      color: #38BDF8;
-      padding: 12px 24px;
-      border-radius: 8px;
-      cursor: pointer;
+    .vinyl-disc img {
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+
+    .song-info {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .song-title {
+      font-size: 20px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+
+    .song-artist {
       font-size: 14px;
-      font-weight: 500;
-      transition: all 0.2s;
-    }
-
-    button:hover {
-      background: rgba(56, 189, 248, 0.2);
-      transform: translateY(-1px);
-    }
-
-    button:active {
-      transform: translateY(0);
-    }
-
-    #lyrics-container {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      max-height: 200px;
-      background: rgba(15, 23, 42, 0.95);
-      border-top: 1px solid rgba(248, 250, 252, 0.1);
-      padding: 16px;
-      overflow-y: auto;
-      display: none;
-    }
-
-    #lyrics-container.show {
-      display: block;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .lyric-line {
-      padding: 8px 0;
-      color: #64748B;
-      font-size: 14px;
-      transition: color 0.3s;
+      font-size: 15px;
+      font-weight: 600;
       text-align: center;
-    }
-
-    .lyric-line.active {
-      color: #38BDF8;
-      font-weight: 600;
-      font-size: 16px;
-    }
-
-    #queue {
-      position: absolute;
-      top: 16px;
-      right: 16px;
-      background: rgba(15, 23, 42, 0.95);
-      border: 1px solid rgba(248, 250, 252, 0.1);
-      border-radius: 8px;
-      padding: 12px;
-      min-width: 200px;
-      max-height: 300px;
-      overflow-y: auto;
-    }
-
-    #queue-title {
-      font-size: 12px;
-      font-weight: 600;
-      color: #94A3B8;
-      margin-bottom: 8px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .queue-item {
-      padding: 8px;
-      border-radius: 4px;
-      margin-bottom: 4px;
-      font-size: 13px;
-      background: rgba(248, 250, 252, 0.05);
-      border: 1px solid rgba(248, 250, 252, 0.05);
-    }
-
-    .queue-item-title {
-      color: #F8FAFC;
-      font-weight: 500;
-    }
-
-    .queue-item-artist {
-      color: #64748B;
-      font-size: 11px;
-      margin-top: 2px;
+      min-height: 24px;
+      color: var(--accent-cyan);
+      text-shadow: 0 0 12px var(--accent-cyan-glow);
+      margin-top: 10px;
+      transition: all 0.3s ease;
     }
   </style>
 </head>
 <body>
-  <div id="player">
-    <div id="cover-container">
-      <img id="cover" src="" alt="封面">
-    </div>
-
-    <div id="info">
-      <div id="title">暂无播放</div>
-      <div id="artist">-</div>
-    </div>
-
-    <div id="progress-container">
-      <div id="progress-bar">
-        <div id="progress-fill"></div>
+  <div class="jukebox-card glass-panel">
+    <div class="disc-container">
+      <div class="vinyl-disc animate-spin" id="disc">
+        <img src="https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=150&q=80" id="cover" alt="Cover">
       </div>
-      <div id="time">
-        <span id="current-time">0:00</span>
-        <span id="total-time">0:00</span>
+      <div class="song-info">
+        <div class="song-title" id="title">未播放</div>
+        <div class="song-artist" id="artist">等待点歌</div>
+        <div class="badge" id="badge" style="margin-top: 8px;">空闲</div>
       </div>
     </div>
 
-    <div id="controls">
-      <button id="play-pause">播放</button>
-      <button id="skip">下一首</button>
+    <!-- Audio Spectrum Bars Canvas -->
+    <div style="height: 60px; width: 100%;">
+      <canvas id="spectrumCanvas" style="width: 100%; height: 100%;"></canvas>
     </div>
+
+    <!-- Dynamic Neon Lyric Line -->
+    <div class="lyric-line" id="lyric"></div>
   </div>
 
-  <div id="lyrics-container"></div>
-
-  <div id="queue">
-    <div id="queue-title">播放队列</div>
-    <div id="queue-list"></div>
-  </div>
-
-  <audio id="audio" style="display: none;"></audio>
-
+  <script src="assets/js/rpc-client.js"></script>
+  <script src="assets/js/audio-visualizer.js"></script>
   <script>
-    const { ipcRenderer } = require('electron')
+    const spectrum = new AudioSpectrumVisualizer(document.getElementById('spectrumCanvas'), { barCount: 36 });
+    spectrum.startSimulated();
 
-    // DOM 元素
-    const audio = document.getElementById('audio')
-    const cover = document.getElementById('cover')
-    const title = document.getElementById('title')
-    const artist = document.getElementById('artist')
-    const progressFill = document.getElementById('progress-fill')
-    const currentTime = document.getElementById('current-time')
-    const totalTime = document.getElementById('total-time')
-    const playPauseBtn = document.getElementById('play-pause')
-    const skipBtn = document.getElementById('skip')
-    const lyricsContainer = document.getElementById('lyrics-container')
-    const queueList = document.getElementById('queue-list')
-
-    // 配置
-    let config = {
-      showLyrics: false,
-      maxDuration: 600
-    }
-
-    // 当前状态
-    let currentSong = null
-
-    // 格式化时间
-    function formatTime(seconds) {
-      const mins = Math.floor(seconds / 60)
-      const secs = Math.floor(seconds % 60)
-      return `${mins}:${secs.toString().padStart(2, '0')}`
-    }
-
-    // 更新进度
-    function updateProgress() {
-      if (audio.duration) {
-        const percent = (audio.currentTime / audio.duration) * 100
-        progressFill.style.width = `${percent}%`
-        currentTime.textContent = formatTime(audio.currentTime)
+    function applyNowPlaying(np, running) {
+      const title = document.getElementById('title');
+      const artist = document.getElementById('artist');
+      const badge = document.getElementById('badge');
+      const lyric = document.getElementById('lyric');
+      const cover = document.getElementById('cover');
+      if (!np) {
+        title.textContent = '未播放';
+        artist.textContent = running ? '等待点歌' : '点歌机未启动';
+        badge.textContent = running ? '空闲' : '停止';
+        badge.className = 'badge';
+        lyric.textContent = '';
+        return;
       }
+      title.textContent = np.title || '未知歌曲';
+      artist.textContent = np.artist || np.userName || '';
+      badge.textContent = np.paused ? '暂停' : '播放中';
+      badge.className = 'badge badge-success';
+      if (np.cover) cover.src = np.cover;
+      if (np.lyric) lyric.textContent = np.lyric;
     }
 
-    // 播放歌曲
-    function playSong(song) {
-      currentSong = song
+    window.vtuberRPC.on('jukebox.state', (state) => {
+      if (!state) return;
+      applyNowPlaying(state.nowPlaying, state.running);
+    });
+    window.vtuberRPC.on('jukebox.nowPlaying', (np) => applyNowPlaying(np, true));
 
-      audio.src = song.url || ''
-      cover.src = song.cover || ''
-      title.textContent = song.title
-      artist.textContent = song.artist
-      totalTime.textContent = formatTime(song.duration)
-
-      audio.play()
-      playPauseBtn.textContent = '暂停'
-    }
-
-    // 切换播放/暂停
-    function togglePlayback() {
-      if (audio.paused) {
-        audio.play()
-        playPauseBtn.textContent = '暂停'
-      } else {
-        audio.pause()
-        playPauseBtn.textContent = '播放'
+    window.addEventListener('load', async () => {
+      try {
+        await window.vtuberRPC.whenReady();
+        const state = await window.vtuberRPC.call('jukebox.getState');
+        applyNowPlaying(state.nowPlaying, state.running);
+      } catch (e) {
+        document.getElementById('artist').textContent = '未连接逻辑服务';
       }
-    }
-
-    // 事件监听
-    audio.addEventListener('timeupdate', updateProgress)
-
-    audio.addEventListener('ended', () => {
-      ipcRenderer.send('song-ended')
-      playPauseBtn.textContent = '播放'
-    })
-
-    playPauseBtn.addEventListener('click', () => {
-      togglePlayback()
-      ipcRenderer.send('toggle-playback')
-    })
-
-    skipBtn.addEventListener('click', () => {
-      ipcRenderer.send('skip-song')
-    })
-
-    // IPC 事件监听
-
-    ipcRenderer.on('init-config', (event, cfg) => {
-      config = cfg
-      if (config.showLyrics) {
-        lyricsContainer.classList.add('show')
-      }
-    })
-
-    ipcRenderer.on('play-song', (event, song) => {
-      playSong(song)
-    })
-
-    ipcRenderer.on('toggle-playback', () => {
-      togglePlayback()
-    })
-
-    ipcRenderer.on('set-volume', (event, data) => {
-      audio.volume = Math.max(0, Math.min(1, data.volume))
-    })
-
-    ipcRenderer.on('get-playback-state', () => {
-      ipcRenderer.send('playback-state', {
-        playing: !audio.paused,
-        currentSong,
-        position: audio.currentTime,
-        duration: audio.duration,
-        volume: audio.volume
-      })
-    })
-
-    ipcRenderer.on('update-queue', (event, queue) => {
-      queueList.innerHTML = ''
-      queue.forEach(song => {
-        const item = document.createElement('div')
-        item.className = 'queue-item'
-        item.innerHTML = `
-          <div class="queue-item-title">${song.title}</div>
-          <div class="queue-item-artist">${song.artist}</div>
-        `
-        queueList.appendChild(item)
-      })
-    })
-
-    // 定期发送播放状态
-    setInterval(() => {
-      if (currentSong) {
-        ipcRenderer.send('playback-state-changed', {
-          playing: !audio.paused,
-          currentSong,
-          position: audio.currentTime,
-          duration: audio.duration,
-          volume: audio.volume
-        })
-      }
-    }, 1000)
+    });
   </script>
 </body>
 </html>

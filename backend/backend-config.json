@@ -1,14 +1,155 @@
 {
+  "roomId": "",
   "server": {
     "host": "0.0.0.0",
-    "port": 19264
+    "httpPort": 19274,
+    "wsPort": 19275
+  },
+  "events": {
+    "enabledEvents": {
+      "danmaku": true,
+      "gift": true,
+      "superchat": true,
+      "enter": false,
+      "follow": true,
+      "like": false,
+      "guard": true,
+      "liveStart": true,
+      "liveEnd": true
+    },
+    "filters": {
+      "minGiftPrice": 0,
+      "minSuperchatAmount": 0
+    }
+  },
+  "triggers": [
+    {
+      "id": "danmaku-debounce",
+      "name": "弹幕合并",
+      "enabled": true,
+      "mode": "debounce",
+      "eventTypes": [
+        "danmaku"
+      ],
+      "delayMs": 5000,
+      "maxBatch": 10,
+      "mergeEvents": [],
+      "cron": "",
+      "actions": []
+    },
+    {
+      "id": "gift-debounce",
+      "name": "礼物合并",
+      "enabled": true,
+      "mode": "debounce",
+      "eventTypes": [
+        "gift"
+      ],
+      "delayMs": 3000,
+      "maxBatch": 5,
+      "mergeEvents": [],
+      "cron": "",
+      "actions": []
+    },
+    {
+      "id": "superchat-immediate",
+      "name": "SC 立即触发",
+      "enabled": true,
+      "mode": "immediate",
+      "eventTypes": [
+        "superchat",
+        "guard"
+      ],
+      "delayMs": 0,
+      "maxBatch": 1,
+      "mergeEvents": [],
+      "cron": "",
+      "actions": []
+    }
+  ],
+  "llm": {
+    "provider": "openai",
+    "baseURL": "https://api.openai.com/v1",
+    "apiKey": "",
+    "model": "gpt-4o-mini",
+    "customHeaders": {},
+    "temperature": 0.7,
+    "maxTokens": 2000,
+    "topP": 1,
+    "timeoutMs": 60000,
+    "systemPrompt": "你是直播间的 AI VTuber。根据事件用工具互动。\n回复观众时必须调用 send_reply，segments.method 只能是 danmaku / display / tts。\n弹幕要短；展示板可以稍长；tts 只放需要朗读的句子。\n不要编造未发生的礼物或上舰。\n可用 Live2D 工具：live2d_expression / live2d_motion / live2d_transform / live2d_status。\n可用点歌工具：jukebox_search_song / jukebox_add_song / jukebox_skip_song / jukebox_get_queue / jukebox_get_current_song。\n当前房间：{{roomId}}\n最近事件：\n{{events}}"
+  },
+  "tts": {
+    "provider": "volcengine",
+    "appId": "",
+    "token": "",
+    "cluster": "volcano_tts",
+    "voiceType": "zh_female_qingxin",
+    "speed": 1,
+    "volume": 1,
+    "pitch": 1,
+    "voiceId": ""
+  },
+  "output": {
+    "danmaku": {
+      "enabled": true,
+      "ratePerMinute": 20
+    },
+    "display": {
+      "enabled": true,
+      "style": "bubble",
+      "fontSize": 28
+    },
+    "tts": {
+      "enabled": false,
+      "delayBeforeSpeakMs": 600
+    }
   },
   "music": {
-    "enableNetease": true,
-    "enableQQ": true,
-    "enableBilibili": false,
-    "defaultVolume": 0.8,
-    "maxDuration": 600,
-    "idlePlaylist": []
+    "defaultSource": "kuwo",
+    "maxDuration": 360,
+    "maxQueueSize": 50,
+    "maxPerUser": 3,
+    "idlePlaylist": [],
+    "idleLoop": true,
+    "directOrder": {
+      "enabled": false,
+      "keywords": [
+        "点歌"
+      ],
+      "pluginCommand": false
+    },
+    "nowPlaying": {
+      "template": "🎵 {{title}} - {{artist}} ({{duration}}s)",
+      "filePath": "data/nowplaying.txt",
+      "windowEnabled": true
+    },
+    "outputDevice": "",
+    "sessions": {}
+  },
+  "live2d": {
+    "modelPath": "../cpp-executor/build/Debug/Resources/Haru/Haru.model3.json",
+    "modelDir": "",
+    "window": {
+      "width": 800,
+      "height": 1000,
+      "transparent": true,
+      "alwaysOnTop": true
+    },
+    "scale": 1,
+    "x": 0,
+    "y": 0
+  },
+  "audio": {
+    "outputDevice": "",
+    "ttsVolume": 80
+  },
+  "cpp": {
+    "executablePath": "../cpp-executor/build/Debug/vtuber_executor.exe",
+    "configPath": "../cpp-executor/config/executor.json",
+    "autoStart": false,
+    "startTimeoutMs": 15000,
+    "ipcPort": 19276,
+    "reconnectMs": 3000
   }
 }

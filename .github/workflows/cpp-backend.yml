@@ -1,0 +1,25 @@
+name: C++ Backend Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libboost-system-dev libssl-dev
+
+      - name: Configure
+        run: cmake -S cpp-backend -B cpp-backend/build
+
+      - name: Build
+        run: cmake --build cpp-backend/build --parallel
+
+      - name: Test
+        run: ctest --test-dir cpp-backend/build --output-on-failure

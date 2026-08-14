@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vtuber 配置中心</title>
+  <link rel="stylesheet" href="assets/css/theme.css">
+  <style>
+    body { overflow-y: auto; padding: 20px; height: auto; min-height: 100vh; }
+    input, textarea, select { user-select: text; }
+    .layout { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+    .header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 20px 24px; }
+    .header h1 {
+      font-size: 22px; font-weight: 800;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .nav { display: flex; gap: 8px; flex-wrap: wrap; }
+    .nav a { text-decoration: none; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tab {
+      padding: 8px 16px; border-radius: var(--radius-full); cursor: pointer;
+      font-size: 13px; font-weight: 600; border: 1px solid var(--border-color);
+      background: var(--bg-card); color: var(--text-secondary);
+    }
+    .tab:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+    .tab.active {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+      color: #fff; border-color: transparent;
+    }
+    .pane { display: none; }
+    .pane.active { display: block; animation: slideInUp 0.3s ease; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field.span-2 { grid-column: 1 / -1; }
+    .field label { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+    .field .desc { font-size: 12px; color: var(--text-muted); }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .toast {
+      position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+      padding: 10px 22px; border-radius: var(--radius-full); font-size: 13px; font-weight: 600;
+      background: var(--bg-card); border: 1px solid var(--border-color); color: var(--accent-emerald);
+      box-shadow: var(--shadow-lg); opacity: 0; pointer-events: none; transition: all 0.3s ease; z-index: 999;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .toast.err { color: var(--accent-rose); }
+    .json-editor { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; min-height: 420px; width: 100%; line-height: 1.6; resize: vertical; }
+    .object-box { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; padding: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-input); }
+    .check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .trigger-list { display: flex; flex-direction: column; gap: 14px; }
+    .trigger-card { padding: 16px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-input); display: flex; flex-direction: column; gap: 10px; }
+    .trigger-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+    .action-row { display: grid; grid-template-columns: 140px 1fr 90px; gap: 8px; align-items: start; }
+    .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 14px; }
+    .stat { padding: 14px; border-radius: var(--radius-md); background: var(--bg-input); border: 1px solid var(--border-color); }
+    .stat b { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--accent-rose); }
+    .dot.on { background: var(--accent-emerald); }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="glass-panel header">
+      <div>
+        <h1>Vtuber 配置中心</h1>
+        <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">
+          按 schema 渲染全部功能 · 点路径保存 · <span id="connLabel">连接中…</span>
+        </div>
+      </div>
+      <div class="btn-row">
+        <nav class="nav">
+          <a class="btn btn-sm" href="index.html">控制台</a>
+          <a class="btn btn-sm" href="jukebox.html">点歌叠加层</a>
+        </nav>
+        <button class="theme-toggle" id="themeBtn" title="切换主题"><span class="toggle-knob"></span></button>
+        <button class="btn btn-success" onclick="saveCurrent()">保存当前分区</button>
+        <button class="btn btn-primary" onclick="reloadConfig()">从磁盘重载</button>
+      </div>
+    </div>
+
+    <div class="tabs" id="tabBar"></div>
+
+    <div class="pane" id="pane-form">
+      <div class="glass-panel" style="padding:24px;">
+        <div id="sectionIntro" style="margin-bottom:16px;color:var(--text-secondary);font-size:13px;"></div>
+        <div class="form-grid" id="formFields"></div>
+        <div class="btn-row" style="margin-top:18px;">
+          <button class="btn btn-success" onclick="saveCurrent()">保存此分区</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-json">
+      <div class="glass-panel" style="padding:24px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <strong>完整 JSON</strong>
+          <button class="btn btn-sm btn-success" onclick="saveFullJson()">保存全部</button>
+        </div>
+        <textarea class="input-control json-editor" id="cfgJson" spellcheck="false">加载中...</textarea>
+      </div>
+    </div>
+
+    <div class="pane" id="pane-status">
+      <div class="glass-panel" style="padding:24px;">
+        <strong>运行状态</strong>
+        <div class="status-grid" id="statusGrid"></div>
+        <pre id="moduleStatus" style="margin-top:14px;white-space:pre-wrap;font-size:12px;color:var(--text-secondary);"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="assets/js/rpc-client.js"></script>
+  <script>
+    const EVENT_TYPES = ['danmaku','gift','superchat','enter','follow','like','guard','liveStart','liveEnd']
+    const MODES = [
+      { value: 'immediate', label: '立即' },
+      { value: 'debounce', label: '延迟合并' },
+      { value: 'cross-merge', label: '跨类型合并' },
+      { value: 'scheduled', label: '定时' },
+    ]
+    const ACTION_TYPES = [
+      { value: 'llm-request', label: '调用 LLM' },
+      { value: 'call-tool', label: '调用工具' },
+      { value: 'wait', label: '等待' },
+    ]
+
+    let CFG = {}
+    let SCHEMA = []
+    let CURRENT = ''
+    let dirty = false
+
+    const rpc = window.vtuberRPC
+
+    function toast(msg, isErr) {
+      const t = document.getElementById('toast')
+      t.textContent = msg
+      t.className = 'toast show' + (isErr ? ' err' : '')
+      clearTimeout(t._timer)
+      t._timer = setTimeout(() => { t.className = 'toast' }, 2600)
+    }
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[c]))
+    }
+
+    function getByPath(obj, path) {
+      return path.split('.').reduce((cur, seg) => (cur && typeof cur === 'object') ? cur[seg] : undefined, obj)
+    }
+
+    function fid(path) {
+      return 'f_' + path.replace(/[^a-zA-Z0-9_]/g, '_')
+    }
+
+    function currentSection() {
+      return SCHEMA.find((s) => s.key === CURRENT) || null
+    }
+
+    function buildTabs() {
+      const bar = document.getElementById('tabBar')
+      bar.innerHTML = ''
+      SCHEMA.forEach((sec) => {
+        const el = document.createElement('div')
+        el.className = 'tab' + (sec.key === CURRENT ? ' active' : '')
+        el.textContent = sec.title
+        el.onclick = () => switchTo(sec.key)
+        bar.appendChild(el)
+      })
+      ;[
+        ['__json', 'JSON'],
+        ['__status', '状态'],
+      ].forEach(([key, label]) => {
+        const el = document.createElement('div')
+        el.className = 'tab' + (key === CURRENT ? ' active' : '')
+        el.textContent = label
+        el.onclick = () => switchTo(key)
+        bar.appendChild(el)
+      })
+    }
+
+    function switchTo(key) {
+      CURRENT = key
+      document.querySelectorAll('.pane').forEach((p) => p.classList.remove('active'))
+      if (key === '__json') document.getElementById('pane-json').classList.add('active')
+      else if (key === '__status') {
+        document.getElementById('pane-status').classList.add('active')
+        loadStatus()
+      } else {
+        document.getElementById('pane-form').classList.add('active')
+        renderSection()
+      }
+      buildTabs()
+    }
+
+    function renderSection() {
+      const sec = currentSection()
+      const grid = document.getElementById('formFields')
+      const intro = document.getElementById('sectionIntro')
+      grid.innerHTML = ''
+      if (!sec) return
+      intro.textContent = sec.description || ''
+      Object.entries(sec.fields || {}).forEach(([path, meta]) => {
+        grid.appendChild(renderField(path, meta, getByPath(CFG, path)))
+      })
+    }
+
+    function renderField(path, meta, value) {
+      const wrap = document.createElement('div')
+      wrap.className = 'field' + (meta.type === 'json' || meta.type === 'triggers' || meta.multiline || meta.type === 'object' ? ' span-2' : '')
+      wrap.dataset.path = path
+      wrap.dataset.type = meta.type
+      const label = document.createElement('label')
+      label.textContent = meta.label || path
+      wrap.appendChild(label)
+
+      if (meta.type === 'boolean') {
+        wrap.appendChild(boolInput(path, value, meta.default))
+      } else if (meta.type === 'select') {
+        const sel = document.createElement('select')
+        sel.className = 'input-control'
+        sel.id = fid(path)
+        ;(meta.options || []).forEach((opt) => {
+          const o = document.createElement('option')
+          o.value = opt.value
+          o.textContent = opt.label
+          if (String(value ?? meta.default ?? '') === String(opt.value)) o.selected = true
+          sel.appendChild(o)
+        })
+        wrap.appendChild(sel)
+      } else if (meta.type === 'password') {
+        const input = document.createElement('input')
+        input.className = 'input-control'
+        input.type = 'password'
+        input.autocomplete = 'off'
+        input.id = fid(path)
+        input.value = value ?? meta.default ?? ''
+        wrap.appendChild(input)
+      } else if (meta.type === 'number') {
+        const input = document.createElement('input')
+        input.className = 'input-control'
+        input.type = 'number'
+        input.id = fid(path)
+        if (meta.min !== undefined) input.min = meta.min
+        if (meta.max !== undefined) input.max = meta.max
+        input.step = meta.max != null && meta.max <= 2 ? '0.1' : '1'
+        input.value = value ?? meta.default ?? 0
+        wrap.appendChild(input)
+      } else if (meta.type === 'json') {
+        const ta = document.createElement('textarea')
+        ta.className = 'input-control'
+        ta.id = fid(path)
+        ta.rows = 4
+        ta.style.fontFamily = 'ui-monospace,monospace'
+        ta.style.fontSize = '12px'
+        ta.value = JSON.stringify(value ?? meta.default ?? {}, null, 2)
+        wrap.appendChild(ta)
+      } else if (meta.type === 'object') {
+        wrap.appendChild(objectInput(path, meta, value))
+      } else if (meta.type === 'triggers') {
+        wrap.appendChild(triggerEditor(value || meta.default || []))
+      } else if (meta.multiline) {
+        const ta = document.createElement('textarea')
+        ta.className = 'input-control'
+        ta.id = fid(path)
+        ta.rows = 8
+        ta.value = value ?? meta.default ?? ''
+        wrap.appendChild(ta)
+      } else {
+        const input = document.createElement('input')
+        input.className = 'input-control'
+        input.type = 'text'
+        input.id = fid(path)
+        input.value = value ?? meta.default ?? ''
+        wrap.appendChild(input)
+      }
+
+      if (meta.description) {
+        const d = document.createElement('span')
+        d.className = 'desc'
+        d.textContent = meta.description
+        wrap.appendChild(d)
+      }
+      return wrap
+    }
+
+    function boolInput(path, value, fallback) {
+      const row = document.createElement('label')
+      row.className = 'check'
+      const input = document.createElement('input')
+      input.type = 'checkbox'
+      input.id = fid(path)
+      input.checked = Boolean(value ?? fallback)
+      const span = document.createElement('span')
+      span.textContent = input.checked ? '开启' : '关闭'
+      input.onchange = () => { span.textContent = input.checked ? '开启' : '关闭' }
+      row.appendChild(input)
+      row.appendChild(span)
+      return row
+    }
+
+    function objectInput(path, meta, value) {
+      const box = document.createElement('div')
+      box.className = 'object-box'
+      box.id = fid(path)
+      const obj = (value && typeof value === 'object') ? value : {}
+      Object.entries(meta.properties || {}).forEach(([key, child]) => {
+        const childPath = path + '.' + key
+        if (child.type === 'boolean') {
+          box.appendChild(boolInput(childPath, obj[key], child.default))
+        } else {
+          const wrap = document.createElement('div')
+          wrap.className = 'field'
+          const lab = document.createElement('label')
+          lab.textContent = child.label || key
+          wrap.appendChild(lab)
+          const input = document.createElement('input')
+          input.className = 'input-control'
+          input.id = fid(childPath)
+          input.type = child.type === 'number' ? 'number' : 'text'
+          input.value = obj[key] ?? child.default ?? ''
+          wrap.appendChild(input)
+          box.appendChild(wrap)
+        }
+      })
+      return box
+    }
+
+    function triggerEditor(list) {
+      const root = document.createElement('div')
+      root.className = 'trigger-list'
+      root.id = 'triggerRoot'
+      const render = (items) => {
+        root.innerHTML = ''
+        items.forEach((rule, idx) => root.appendChild(triggerCard(rule, idx, items, render)))
+        const add = document.createElement('button')
+        add.className = 'btn btn-sm'
+        add.type = 'button'
+        add.textContent = '新增触发器'
+        add.onclick = () => {
+          items.push({
+            id: 'rule-' + Date.now(),
+            name: '新规则',
+            enabled: true,
+            mode: 'immediate',
+            eventTypes: ['danmaku'],
+            delayMs: 0,
+            maxBatch: 1,
+            mergeEvents: [],
+            cron: '',
+            actions: [],
+          })
+          render(items)
+        }
+        root.appendChild(add)
+        root._items = items
+      }
+      render(Array.isArray(list) ? JSON.parse(JSON.stringify(list)) : [])
+      return root
+    }
+
+    function triggerCard(rule, idx, items, render) {
+      const card = document.createElement('div')
+      card.className = 'trigger-card'
+      card.innerHTML = `
+        <div class="trigger-head">
+          <strong>${esc(rule.name || rule.id)}</strong>
+          <div class="btn-row">
+            <label class="check"><input type="checkbox" data-k="enabled" ${rule.enabled ? 'checked' : ''}>启用</label>
+            <button class="btn btn-sm" type="button" data-act="up">上移</button>
+            <button class="btn btn-sm" type="button" data-act="down">下移</button>
+            <button class="btn btn-sm btn-danger" type="button" data-act="del">删除</button>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label>ID</label><input class="input-control" data-k="id" value="${esc(rule.id)}"></div>
+          <div class="field"><label>名称</label><input class="input-control" data-k="name" value="${esc(rule.name)}"></div>
+          <div class="field"><label>模式</label>
+            <select class="input-control" data-k="mode">${MODES.map((m) =>
+              `<option value="${m.value}" ${rule.mode === m.value ? 'selected' : ''}>${m.label}</option>`).join('')}</select>
+          </div>
+          <div class="field"><label>延迟 ms</label><input class="input-control" type="number" data-k="delayMs" value="${Number(rule.delayMs||0)}"></div>
+          <div class="field"><label>最大合并条数</label><input class="input-control" type="number" data-k="maxBatch" value="${Number(rule.maxBatch||1)}"></div>
+          <div class="field"><label>Cron</label><input class="input-control" data-k="cron" value="${esc(rule.cron||'')}" placeholder="分 时 日 月 周"></div>
+        </div>
+        <div>
+          <label>事件类型</label>
+          <div class="chip-row">${EVENT_TYPES.map((t) =>
+            `<label class="chip"><input type="checkbox" data-ev="${t}" ${(rule.eventTypes||[]).includes(t)?'checked':''}>${t}</label>`).join('')}</div>
+        </div>
+        <div>
+          <label>跨类型合并</label>
+          <div class="chip-row">${EVENT_TYPES.map((t) =>
+            `<label class="chip"><input type="checkbox" data-mv="${t}" ${(rule.mergeEvents||[]).includes(t)?'checked':''}>${t}</label>`).join('')}</div>
+        </div>
+        <div>
+          <label>动作序列（空则默认 llm-request）</label>
+          <div data-actions></div>
+          <button class="btn btn-sm" type="button" data-act="add-action" style="margin-top:8px;">添加动作</button>
+        </div>
+      `
+      const actionBox = card.querySelector('[data-actions]')
+      const drawActions = () => {
+        actionBox.innerHTML = ''
+        ;(rule.actions || []).forEach((act, ai) => {
+          const row = document.createElement('div')
+          row.className = 'action-row'
+          row.style.marginTop = '8px'
+          row.innerHTML = `
+            <select class="input-control" data-ak="type">${ACTION_TYPES.map((t) =>
+              `<option value="${t.value}" ${act.type===t.value?'selected':''}>${t.label}</option>`).join('')}</select>
+            <input class="input-control" data-ak="detail" placeholder="tool / prompt / 等待毫秒" value="${esc(act.tool || act.prompt || (act.waitMs ?? ''))}">
+            <button class="btn btn-sm" type="button">删</button>
+          `
+          row.querySelector('button').onclick = () => { rule.actions.splice(ai, 1); drawActions() }
+          actionBox.appendChild(row)
+        })
+      }
+      if (!Array.isArray(rule.actions)) rule.actions = []
+      drawActions()
+
+      card.querySelector('[data-act="del"]').onclick = () => { items.splice(idx, 1); render(items) }
+      card.querySelector('[data-act="up"]').onclick = () => {
+        if (idx === 0) return
+        items.splice(idx - 1, 0, items.splice(idx, 1)[0]); render(items)
+      }
+      card.querySelector('[data-act="down"]').onclick = () => {
+        if (idx >= items.length - 1) return
+        items.splice(idx + 1, 0, items.splice(idx, 1)[0]); render(items)
+      }
+      card.querySelector('[data-act="add-action"]').onclick = () => {
+        rule.actions.push({ type: 'llm-request' })
+        drawActions()
+      }
+      return card
+    }
+
+    function collectTriggers() {
+      const root = document.getElementById('triggerRoot')
+      if (!root) return []
+      return [...root.querySelectorAll('.trigger-card')].map((card) => {
+        const val = (k) => card.querySelector('[data-k="'+k+'"]')
+        const eventTypes = [...card.querySelectorAll('[data-ev]')].filter((el) => el.checked).map((el) => el.dataset.ev)
+        const mergeEvents = [...card.querySelectorAll('[data-mv]')].filter((el) => el.checked).map((el) => el.dataset.mv)
+        const actions = [...card.querySelectorAll('[data-actions] .action-row')].map((row) => {
+          const type = row.querySelector('[data-ak="type"]').value
+          const detail = row.querySelector('[data-ak="detail"]').value.trim()
+          if (type === 'wait') return { type, waitMs: Number(detail) || 0 }
+          if (type === 'call-tool') return { type, tool: detail }
+          return { type, prompt: detail }
+        })
+        return {
+          id: val('id').value.trim() || ('rule-' + Date.now()),
+          name: val('name').value.trim() || '未命名',
+          enabled: val('enabled').checked,
+          mode: val('mode').value,
+          eventTypes,
+          delayMs: Number(val('delayMs').value) || 0,
+          maxBatch: Number(val('maxBatch').value) || 1,
+          mergeEvents,
+          cron: val('cron').value.trim(),
+          actions,
+        }
+      })
+    }
+
+    function collectObject(path, meta) {
+      const out = {}
+      Object.entries(meta.properties || {}).forEach(([key, child]) => {
+        const el = document.getElementById(fid(path + '.' + key))
+        if (!el) return
+        if (child.type === 'boolean') out[key] = el.checked
+        else if (child.type === 'number') out[key] = Number(el.value)
+        else out[key] = el.value
+      })
+      return out
+    }
+
+    function collectSectionEntries() {
+      const sec = currentSection()
+      if (!sec) return []
+      const entries = []
+      Object.entries(sec.fields || {}).forEach(([path, meta]) => {
+        if (meta.type === 'triggers') {
+          entries.push({ path, value: collectTriggers() })
+          return
+        }
+        if (meta.type === 'object') {
+          entries.push({ path, value: collectObject(path, meta) })
+          return
+        }
+        const el = document.getElementById(fid(path))
+        if (!el) return
+        let value
+        if (meta.type === 'boolean') value = el.checked
+        else if (meta.type === 'number') value = Number(el.value)
+        else if (meta.type === 'json') {
+          try { value = JSON.parse(el.value || 'null') }
+          catch (e) { throw new Error(path + ' JSON 无效: ' + e.message) }
+        } else value = el.value
+        entries.push({ path, value })
+      })
+      return entries
+    }
+
+    async function saveCurrent() {
+      if (CURRENT === '__json') return saveFullJson()
+      if (CURRENT === '__status') return
+      try {
+        const entries = collectSectionEntries()
+        await rpc.call('config.updatePaths', { entries })
+        await refresh(false)
+        toast('已保存「' + (currentSection()?.title || CURRENT) + '」')
+      } catch (e) {
+        toast('保存失败: ' + (e.message || e), true)
+      }
+    }
+
+    async function saveFullJson() {
+      try {
+        const config = JSON.parse(document.getElementById('cfgJson').value)
+        await rpc.call('config.update', { config })
+        await refresh(false)
+        toast('全部配置已保存')
+      } catch (e) {
+        toast('保存失败: ' + (e.message || e), true)
+      }
+    }
+
+    async function reloadConfig() {
+      try {
+        await rpc.call('config.reload')
+        await refresh(false)
+        toast('已从磁盘重载')
+      } catch (e) {
+        toast('重载失败: ' + (e.message || e), true)
+      }
+    }
+
+    async function loadStatus() {
+      const grid = document.getElementById('statusGrid')
+      const pre = document.getElementById('moduleStatus')
+      try {
+        const [status, info, cpp, jb] = await Promise.all([
+          rpc.call('system.status'),
+          rpc.call('system.info'),
+          rpc.call('cpp.status'),
+          rpc.call('jukebox.getState'),
+        ])
+        const cards = [
+          ['服务', 'v' + status.version],
+          ['房间', status.roomId || '未设置'],
+          ['事件', String(status.eventCount)],
+          ['触发器', String(status.triggers)],
+          ['LLM', status.llmConfigured ? '已配置' : '未配置 Key'],
+          ['执行器', (cpp.connected ? '已连接' : '未连接') + ' / ' + cpp.status],
+          ['点歌机', jb.running ? (jb.playing ? '播放中' : '空闲') : '已停止'],
+          ['运行时长', Math.round(status.uptime) + 's'],
+        ]
+        grid.innerHTML = cards.map(([k, v]) => `<div class="stat"><b>${esc(k)}</b>${esc(v)}</div>`).join('')
+        pre.textContent = JSON.stringify({ status, info, cpp, jukebox: jb }, null, 2)
+      } catch (e) {
+        grid.innerHTML = ''
+        pre.textContent = '读取失败: ' + (e.message || e)
+      }
+    }
+
+    async function refresh(switchFirst) {
+      CFG = await rpc.call('config.get')
+      SCHEMA = await rpc.call('config.schema')
+      if (!Array.isArray(SCHEMA)) throw new Error('config.schema 应为分区数组')
+      document.getElementById('cfgJson').value = JSON.stringify(CFG, null, 2)
+      if (switchFirst || !CURRENT) CURRENT = SCHEMA[0]?.key || '__json'
+      buildTabs()
+      if (CURRENT === '__json' || CURRENT === '__status') switchTo(CURRENT)
+      else {
+        document.getElementById('pane-form').classList.add('active')
+        renderSection()
+        buildTabs()
+      }
+    }
+
+    rpc.onStatusChange((ok) => {
+      const el = document.getElementById('connLabel')
+      el.innerHTML = `<span class="dot ${ok ? 'on' : ''}"></span>${ok ? '已连接 19275' : '未连接'}`
+    })
+    document.getElementById('themeBtn').onclick = () => rpc.toggleTheme()
+
+    window.addEventListener('load', async () => {
+      try {
+        await rpc.whenReady()
+        await refresh(true)
+      } catch (e) {
+        toast('加载配置失败: ' + (e.message || e), true)
+      }
+      rpc.on('connected', () => refresh(false).catch(() => {}))
+      rpc.on('config.changed', () => refresh(false).catch(() => {}))
+    })
+  </script>
+</body>
+</html>

@@ -3,127 +3,298 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vtuber Backend</title>
+  <title>Vtuber 控制台</title>
+  <link rel="stylesheet" href="assets/css/theme.css">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
+    body { overflow-y: auto; height: auto; min-height: 100vh; padding: 20px; }
+    input, textarea { user-select: text; }
+    .wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 20px 24px; }
+    .top h1 {
+      font-size: 22px; font-weight: 800;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     }
-
-    body {
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
-      background: linear-gradient(135deg, #0A0D12 0%, #161D2B 100%);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .container {
-      text-align: center;
-      padding: 2rem;
-    }
-
-    .logo {
-      font-size: 4rem;
-      margin-bottom: 1rem;
-    }
-
-    .title {
-      font-size: clamp(1.5rem, 3vw, 2rem);
-      font-weight: 600;
-      color: #F3F4F6;
-      margin-bottom: 0.5rem;
-    }
-
-    .subtitle {
-      font-size: clamp(1rem, 2vw, 1.25rem);
-      color: rgba(229, 231, 235, 0.6);
-      margin-bottom: 2rem;
-    }
-
-    .info {
-      background: rgba(15, 19, 28, 0.5);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
-      padding: 1.5rem;
-      max-width: 500px;
-      margin: 0 auto;
-    }
-
-    .info-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 0.75rem 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-      font-size: clamp(0.875rem, 1.5vw, 1rem);
-    }
-
-    .info-item:last-child {
-      border-bottom: none;
-    }
-
-    .info-label {
-      color: rgba(229, 231, 235, 0.6);
-    }
-
-    .info-value {
-      color: #38BDF8;
-      font-weight: 500;
-    }
-
-    .status {
-      margin-top: 2rem;
-      padding: 1rem;
-      background: rgba(110, 231, 183, 0.1);
-      border: 1px solid rgba(110, 231, 183, 0.3);
-      border-radius: 12px;
-      color: #6EE7B7;
-      font-size: clamp(0.875rem, 1.5vw, 1rem);
-    }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+    .stat { padding: 14px 16px; }
+    .stat b { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+    .stat .v { font-size: 18px; font-weight: 700; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--accent-rose); }
+    .dot.on { background: var(--accent-emerald); }
+    .panel { padding: 20px 24px; }
+    .split { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; }
+    @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+    .queue { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow: auto; }
+    .qitem { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-input); font-size: 13px; }
+    .log { height: 220px; overflow: auto; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--text-secondary); background: var(--bg-input); border-radius: var(--radius-md); padding: 12px; }
+    .search-box { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .search-box input, .search-box select { flex: 1; min-width: 140px; }
+    .results { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow: auto; }
+    .res { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-input); font-size: 13px; }
+    .now { display: flex; gap: 14px; align-items: center; }
+    .cover { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; background: #111; }
+    .muted { color: var(--text-muted); font-size: 13px; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="logo">🎭</div>
-    <div class="title">Vtuber Backend</div>
-    <div class="subtitle">独立后端服务器</div>
-
-    <div class="info">
-      <div class="info-item">
-        <span class="info-label">版本</span>
-        <span class="info-value" id="version">0.0.1</span>
+  <div class="wrap">
+    <div class="glass-panel top">
+      <div>
+        <h1>Vtuber 控制台</h1>
+        <div class="muted" id="connLabel">连接中…</div>
       </div>
-      <div class="info-item">
-        <span class="info-label">Electron</span>
-        <span class="info-value" id="electronVersion">-</span>
-      </div>
-      <div class="info-item">
-        <span class="info-label">Node.js</span>
-        <span class="info-value" id="nodeVersion">-</span>
-      </div>
-      <div class="info-item">
-        <span class="info-label">Chrome</span>
-        <span class="info-value" id="chromeVersion">-</span>
+      <div class="row">
+        <a class="btn btn-primary" href="settings.html">完整配置</a>
+        <a class="btn" href="jukebox.html">点歌叠加层</a>
+        <a class="btn" href="display.html">展示板</a>
+        <button class="theme-toggle" id="themeBtn" title="切换主题"><span class="toggle-knob"></span></button>
       </div>
     </div>
 
-    <div class="status">
-      ✓ 后端服务正在运行
+    <div class="grid" id="stats"></div>
+
+    <div class="split">
+      <div class="glass-panel panel">
+        <div class="row" style="justify-content:space-between;margin-bottom:14px;">
+          <strong>点歌机</strong>
+          <div class="row">
+            <button class="btn btn-sm btn-success" onclick="jb('start')">启动</button>
+            <button class="btn btn-sm" onclick="jb('stop')">停止</button>
+            <button class="btn btn-sm" onclick="jb('skip')">切歌</button>
+            <button class="btn btn-sm" onclick="jb('mute')">静音</button>
+            <button class="btn btn-sm" onclick="jb('unmute')">取消静音</button>
+          </div>
+        </div>
+        <div class="now" id="nowPlaying">
+          <img class="cover" id="cover" alt="">
+          <div>
+            <div id="npTitle">未播放</div>
+            <div class="muted" id="npMeta">—</div>
+          </div>
+        </div>
+        <div class="row" style="margin:14px 0;">
+          <span class="muted">音量</span>
+          <input type="range" id="vol" min="0" max="100" value="80" style="flex:1;">
+          <span id="volLabel">80</span>
+        </div>
+        <div class="search-box">
+          <select class="input-control" id="source"></select>
+          <input class="input-control" id="keyword" placeholder="搜索或直接点歌关键词">
+          <button class="btn btn-primary" onclick="searchSongs()">搜索</button>
+          <button class="btn" onclick="addKeyword()">直接加入</button>
+        </div>
+        <div class="results" id="results"></div>
+      </div>
+
+      <div class="glass-panel panel">
+        <strong>队列</strong>
+        <div class="queue" id="queue"><div class="muted">空</div></div>
+      </div>
+    </div>
+
+    <div class="split">
+      <div class="glass-panel panel">
+        <div class="row" style="justify-content:space-between;margin-bottom:10px;">
+          <strong>执行器</strong>
+          <div class="row">
+            <button class="btn btn-sm btn-success" onclick="cpp('start')">启动</button>
+            <button class="btn btn-sm" onclick="cpp('stop')">停止</button>
+            <button class="btn btn-sm" onclick="cpp('restart')">重启</button>
+          </div>
+        </div>
+        <div class="muted" id="cppLine">读取中…</div>
+        <div class="row" style="margin-top:12px;">
+          <input class="input-control" id="ttsText" placeholder="试听 TTS 文本" value="你好，我是直播间的 AI VTuber。">
+          <button class="btn btn-sm btn-primary" onclick="speakTts()">试听</button>
+          <button class="btn btn-sm" onclick="stopTts()">停语音</button>
+        </div>
+        <div class="muted" id="ttsLine" style="margin-top:8px;">TTS 未读</div>
+      </div>
+      <div class="glass-panel panel">
+        <strong>事件 / 触发</strong>
+        <div class="log" id="log"></div>
+      </div>
     </div>
   </div>
 
+  <script src="assets/js/rpc-client.js"></script>
   <script>
-    // 显示版本信息
-    if (window.versions) {
-      document.getElementById('electronVersion').textContent = window.versions.electron || '-';
-      document.getElementById('nodeVersion').textContent = window.versions.node || '-';
-      document.getElementById('chromeVersion').textContent = window.versions.chrome || '-';
+    const rpc = window.vtuberRPC
+    const logEl = document.getElementById('log')
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[c]))
     }
+
+    function log(line) {
+      const t = new Date().toLocaleTimeString()
+      logEl.innerHTML = `<div>[${t}] ${esc(line)}</div>` + logEl.innerHTML
+    }
+
+    function setStats(status, cpp, jb) {
+      const cards = [
+        ['服务', 'v' + (status.version || '')],
+        ['房间', status.roomId || '未设置'],
+        ['事件', String(status.eventCount ?? 0)],
+        ['触发器', String(status.triggers ?? 0)],
+        ['LLM', status.llmConfigured ? '已配置' : '未配置'],
+        ['执行器', (cpp.connected ? '已连接' : '离线') + ' / ' + (cpp.status || '-')],
+        ['点歌机', jb.running ? (jb.playing ? '播放中' : '空闲') : '已停止'],
+        ['运行', Math.round(status.uptime || 0) + 's'],
+      ]
+      document.getElementById('stats').innerHTML = cards.map(([k, v]) =>
+        `<div class="glass-panel stat"><b>${esc(k)}</b><div class="v">${esc(v)}</div></div>`
+      ).join('')
+      document.getElementById('cppLine').textContent =
+        (cpp.connected ? '已连接' : '未连接') + ' · 状态 ' + (cpp.status || '-')
+    }
+
+    function renderJukebox(state) {
+      const np = state.nowPlaying
+      document.getElementById('npTitle').textContent = np ? (np.title + (np.artist ? ' - ' + np.artist : '')) : '未播放'
+      document.getElementById('npMeta').textContent = np
+        ? ((np.userName || '') + (np.source ? ' · ' + np.source : ''))
+        : (state.running ? '等待队列' : '未启动')
+      document.getElementById('cover').src = (np && np.cover) ? np.cover : ''
+      document.getElementById('vol').value = state.volume
+      document.getElementById('volLabel').textContent = state.volume
+      const src = document.getElementById('source')
+      if (!src.options.length && state.sources) {
+        state.sources.forEach((name) => {
+          const o = document.createElement('option')
+          o.value = name
+          o.textContent = name
+          src.appendChild(o)
+        })
+      }
+      const q = state.queue || []
+      document.getElementById('queue').innerHTML = q.length
+        ? q.map((item) => `<div class="qitem"><span>${esc(item.title)} · ${esc(item.userName||'')}</span><span class="muted">${esc(item.source||'')}</span></div>`).join('')
+        : '<div class="muted">空</div>'
+    }
+
+    async function refresh() {
+      const [status, cpp, jb, tts] = await Promise.all([
+        rpc.call('system.status'),
+        rpc.call('cpp.status'),
+        rpc.call('jukebox.getState'),
+        rpc.call('tts.status').catch(() => ({ speaking: false, queued: 0 })),
+      ])
+      setStats(status, cpp, jb)
+      renderJukebox(jb)
+      document.getElementById('ttsLine').textContent =
+        (status.tts && status.tts.configured ? 'TTS 已配置' : 'TTS 未配置 AppID/Token')
+        + ' · ' + (tts.speaking ? '朗读中' : '空闲')
+        + ' · 队列 ' + (tts.queued ?? 0)
+    }
+
+    async function jb(op) {
+      try {
+        const r = await rpc.call('jukebox.' + op)
+        log('jukebox.' + op + ' ' + JSON.stringify(r))
+        await refresh()
+      } catch (e) { log('失败 ' + (e.message || e)) }
+    }
+
+    async function speakTts() {
+      const text = document.getElementById('ttsText').value.trim()
+      if (!text) return
+      try {
+        const r = await rpc.call('tts.speak', { text })
+        log('tts.speak ' + JSON.stringify(r))
+        await refresh()
+      } catch (e) { log('TTS 失败 ' + (e.message || e)) }
+    }
+
+    async function stopTts() {
+      try {
+        await rpc.call('tts.stop')
+        log('tts.stop')
+        await refresh()
+      } catch (e) { log('停语音失败 ' + (e.message || e)) }
+    }
+
+    async function cpp(op) {
+      try {
+        const r = await rpc.call('cpp.' + op)
+        log('cpp.' + op + ' ' + JSON.stringify(r))
+        await refresh()
+      } catch (e) { log('失败 ' + (e.message || e)) }
+    }
+
+    async function searchSongs() {
+      const keyword = document.getElementById('keyword').value.trim()
+      if (!keyword) return
+      const source = document.getElementById('source').value
+      try {
+        const r = await rpc.call('jukebox.search', { keyword, source })
+        const box = document.getElementById('results')
+        box.innerHTML = (r.results || []).map((s, i) =>
+          `<div class="res"><span>${esc(s.title)} · ${esc(s.artist)}</span><button class="btn btn-sm" data-i="${i}">加入</button></div>`
+        ).join('') || '<div class="muted">无结果</div>'
+        box._results = r.results || []
+        box.querySelectorAll('button').forEach((btn) => {
+          btn.onclick = async () => {
+            const song = box._results[Number(btn.dataset.i)]
+            const added = await rpc.call('jukebox.add', {
+              songId: song.meta?.identifier,
+              source: song.meta?.provider || source,
+              title: song.title,
+              userName: 'webui',
+            })
+            log(added.message || '已加入')
+            await refresh()
+          }
+        })
+      } catch (e) { log('搜索失败 ' + (e.message || e)) }
+    }
+
+    async function addKeyword() {
+      const keyword = document.getElementById('keyword').value.trim()
+      if (!keyword) return
+      try {
+        const r = await rpc.call('jukebox.add', {
+          keyword,
+          source: document.getElementById('source').value,
+          userName: 'webui',
+        })
+        log(r.message || JSON.stringify(r))
+        await refresh()
+      } catch (e) { log('点歌失败 ' + (e.message || e)) }
+    }
+
+    document.getElementById('vol').onchange = async (ev) => {
+      await rpc.call('jukebox.setVolume', { volume: Number(ev.target.value) })
+      document.getElementById('volLabel').textContent = ev.target.value
+    }
+    document.getElementById('themeBtn').onclick = () => rpc.toggleTheme()
+    document.getElementById('keyword').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') searchSongs()
+    })
+
+    rpc.onStatusChange((ok) => {
+      document.getElementById('connLabel').innerHTML =
+        `<span class="dot ${ok ? 'on' : ''}"></span>${ok ? '已连接 ws://' + location.hostname + ':19275' : '未连接'}`
+    })
+    rpc.on('jukebox.state', renderJukebox)
+    rpc.on('jukebox.nowPlaying', () => refresh().catch(() => {}))
+    rpc.on('event.received', (e) => log((e && e.type) + ' ' + ((e.user && e.user.name) || '') + ' ' + ((e.data && e.data.content) || '')))
+    rpc.on('trigger.fired', (e) => log('trigger ' + (e && e.id) + ' ' + (e && e.reason)))
+    rpc.on('output.danmaku', (e) => log('danmaku → ' + (e && e.text)))
+    rpc.on('tts.state', () => refresh().catch(() => {}))
+    rpc.on('tts.error', (e) => log('tts.error ' + ((e && e.message) || '')))
+
+    window.addEventListener('load', async () => {
+      try {
+        await rpc.whenReady()
+        await refresh()
+      } catch (e) {
+        log('加载失败: ' + (e.message || e))
+      }
+    })
   </script>
 </body>
 </html>

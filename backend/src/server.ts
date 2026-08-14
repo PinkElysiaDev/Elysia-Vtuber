@@ -3,9 +3,12 @@
  */
 
 import * as http from 'http'
+import * as fs from 'fs/promises'
+import * as path from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { JsonRpcHandler } from './jsonrpc/handler'
-import type { ServerConfig } from './config'
+import type { ServerConfig, BackendConfig } from './config'
+import { loadConfig, saveConfig } from './config'
 import type { WindowManager } from './window/manager'
 import type { Live2DManager } from './live2d/manager'
 import type { MusicPlayerManager } from './music/manager'
@@ -30,7 +33,6 @@ export class BackendServer {
     this.rpcHandler = new JsonRpcHandler()
     this.registerMethods()
   }
-
   /**
    * 启动服务器
    */
@@ -231,5 +233,137 @@ export class BackendServer {
       }, 500)
       return { success: true }
     })
+
+    // ========== 配置管理 ==========
+    this.rpcHandler.register('config.get', async () => {
+      return await loadConfig()
+    })
+
+    this.rpcHandler.register('config.schema', async () => {
+      return this.buildConfigSchema()
+    })
+
+    this.rpcHandler.register('config.update', async (params) => {
+      const patch = params?.config
+      if (!patch || typeof patch !== 'object') {
+        throw new Error('config.update requires an object')
+      }
+      const current = await loadConfig()
+      const merged: any = { ...current }
+      for (const [key, value] of Object.entries(patch)) {
+        merged[key] = value
+      }
+      await saveConfig(merged)
+      this.broadcast('config.changed', {})
+      return merged
+    })
+
+    this.rpcHandler.register('config.updateSection', async (params) => {
+      const section = params?.section
+      const value = params?.value
+      if (!section || typeof section !== 'string') {
+        throw new Error('config.updateSection requires a section')
+      }
+      const current: any = await loadConfig()
+      current[section] = value
+      await saveConfig(current)
+      this.broadcast('config.changed', { section })
+      return { success: true, section, value }
+    })
+
+    this.rpcHandler.register('config.reload', async () => {
+      return await loadConfig()
+    })
+
+    this.rpcHandler.register('system.info', async () => {
+      const config = await loadConfig()
+      const state = this.managers.live2dManager.getCurrentModel()
+      const nowPlaying = await this.managers.musicPlayerManager.getNowPlaying()
+      return {
+        version: '0.0.1',
+        platform: 'node-backend',
+        configFile: config,
+        configPath: path.join(process.cwd(), 'backend-config.json'),
+        llmConfigured: false,
+        ttsConfigured: false,
+        modules: {
+          music: nowPlaying?.isPlaying ? 'playing' : 'stopped',
+          live2d: state ? 'loaded' : 'idle',
+        },
+      }
+    })
+  }
+
+  /**
+   * 结构化配置 Schema（与 WebUI 表单渲染对齐）
+   */
+  private buildConfigSchema(): Record<string, any> {
+    return {
+      server: {
+        type: 'object',
+        label: '服务网络',
+        description: 'HTTP / WebSocket 服务监听配置',
+        properties: {
+          host: { type: 'string', label: '监听地址', description: '0.0.0.0 所有网卡 / 127.0.0.1 仅本机' },
+          port: { type: 'number', label: 'WebSocket 端口', description: 'JSON-RPC 双向通信端口' },
+          corsOrigin: { type: 'string', label: 'CORS 来源' },
+        },
+      },
+      music: {
+        type: 'object',
+        label: '点歌机',
+        description: '音乐播放与队列行为',
+        properties: {
+          enableNetease: { type: 'boolean', label: '启用网易云音源' },
+          enableQQ: { type: 'boolean', label: '启用 QQ 音源' },
+          enableBilibili: { type: 'boolean', label: '启用 Bilibili 音源' },
+          defaultVolume: { type: 'number', label: '默认音量', min: 0, max: 1, step: 0.05 },
+          maxDuration: { type: 'number', label: '最大歌曲时长 (秒)' },
+          outputDevice: { type: 'string', label: '输出设备' },
+          idlePlaylist: { type: 'json', label: '空闲歌单', description: '队列空时自动播放的歌曲 ID 列表' },
+        },
+      },
+      live2d: {
+        type: 'object',
+        label: 'Live2D 舞台',
+        properties: {
+          enabled: { type: 'boolean', label: '启用' },
+          modelPath: { type: 'string', label: '默认模型路径' },
+          defaultExpression: { type: 'string', label: '默认表情' },
+          defaultScale: { type: 'number', label: '默认缩放', min: 0.1, max: 5, step: 0.05 },
+        },
+      },
+      display: {
+        type: 'object',
+        label: '字幕展示板',
+        properties: {
+          enabled: { type: 'boolean', label: '启用' },
+          fontSize: { type: 'number', label: '字号', min: 12, max: 96 },
+          fontFamily: { type: 'string', label: '字体' },
+          color: { type: 'color', label: '文字颜色' },
+          backgroundColor: { type: 'color', label: '背景颜色' },
+          padding: { type: 'number', label: '内边距' },
+        },
+      },
+      audio: {
+        type: 'object',
+        label: '音频播放',
+        properties: {
+          enabled: { type: 'boolean', label: '启用' },
+          outputDevice: { type: 'string', label: '输出设备' },
+          defaultVolume: { type: 'number', label: '默认音量', min: 0, max: 1, step: 0.05 },
+        },
+      },
+      logging: {
+        type: 'object',
+        label: '日志',
+        properties: {
+          level: { type: 'select', label: '日志级别', options: ['debug', 'info', 'warn', 'error'] },
+          logFile: { type: 'string', label: '日志文件路径' },
+          maxFileSize: { type: 'number', label: '最大文件大小 (字节)' },
+          maxFiles: { type: 'number', label: '保留文件数' },
+        },
+      },
+    }
   }
 }

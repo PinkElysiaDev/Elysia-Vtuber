@@ -1,0 +1,70 @@
+{
+  "audio": {},
+  "display": {},
+  "live2d": {},
+  "llm": {
+    "apiKey": "",
+    "baseUrl": "https://api.openai.com/v1",
+    "headers": {},
+    "maxTokens": 2000,
+    "model": "gpt-4o-mini",
+    "provider": "openai",
+    "temperature": 0.7,
+    "topP": 1
+  },
+  "music": {
+    "autoPlay": true,
+    "defaultVolume": 80,
+    "preserveQueueOnRestart": true
+  },
+  "output": {},
+  "roomId": "default",
+  "server": {
+    "host": "0.0.0.0",
+    "httpPort": 19274,
+    "wsPort": 19275
+  },
+  "system": {},
+  "triggers": [
+    {
+      "delay": 5000,
+      "eventTypes": [
+        "danmaku"
+      ],
+      "id": "danmaku-debounce",
+      "maxBatch": 10,
+      "mode": "debounce",
+      "name": "弹幕合并"
+    },
+    {
+      "delay": 3000,
+      "eventTypes": [
+        "gift"
+      ],
+      "id": "gift-debounce",
+      "maxBatch": 5,
+      "mode": "debounce",
+      "name": "礼物合并"
+    },
+    {
+      "eventTypes": [
+        "superchat",
+        "guard"
+      ],
+      "id": "superchat-immediate",
+      "mode": "immediate",
+      "name": "SC立即触发"
+    }
+  ],
+  "tts": {
+    "appId": "",
+    "baseUrl": "https://openspeech.bytedance.com",
+    "cluster": "volcano_tts",
+    "pitch": 1,
+    "provider": "volcengine",
+    "speed": 1,
+    "token": "",
+    "voiceType": "zh_female_qingxin",
+    "volume": 1
+  }
+}

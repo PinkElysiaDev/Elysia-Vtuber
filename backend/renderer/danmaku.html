@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Danmaku & SC Wall OBS Overlay</title>
+  <link rel="stylesheet" href="assets/css/theme.css">
+  <style>
+    body {
+      background: transparent !important;
+      background-image: none !important;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 24px;
+    }
+
+    .danmaku-container {
+      width: 420px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 80vh;
+      overflow: hidden;
+    }
+
+    .danmaku-card {
+      padding: 12px 18px;
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      animation: slideInRight 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      backdrop-filter: blur(12px);
+    }
+
+    .danmaku-card .uname {
+      font-weight: 700;
+      color: var(--accent-cyan);
+    }
+
+    .danmaku-card.sc-card {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(244, 63, 94, 0.25));
+      border: 1px solid var(--accent-amber);
+      box-shadow: 0 0 20px var(--accent-amber-glow);
+    }
+
+    .danmaku-card.sc-card .uname {
+      color: var(--accent-amber);
+    }
+  </style>
+</head>
+<body>
+  <div class="danmaku-container" id="container"></div>
+
+  <script src="assets/js/rpc-client.js"></script>
+  <script src="assets/js/particles.js"></script>
+  <script>
+    const container = document.getElementById('container');
+
+    function addDanmaku(user, text, isSC = false) {
+      const card = document.createElement('div');
+      card.className = `danmaku-card glass-panel ${isSC ? 'sc-card' : ''}`;
+      card.innerHTML = `
+        <span class="uname">${user}:</span>
+        <span class="msg">${text}</span>
+      `;
+      container.appendChild(card);
+
+      if (container.children.length > 8) {
+        container.removeChild(container.firstChild);
+      }
+    }
+
+    window.vtuberRPC.on('danmaku.receive', (data) => {
+      addDanmaku(data.user || '观众', data.content, data.isSC);
+    });
+  </script>
+</body>
+</html>

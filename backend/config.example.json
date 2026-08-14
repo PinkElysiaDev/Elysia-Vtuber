@@ -1,103 +1,66 @@
 {
-  "$schema": "./config.schema.json",
-  "comment": "Vtuber Backend 配置文件示例",
-
+  "roomId": "",
   "server": {
-    "host": "localhost",
-    "port": 8765,
-    "comment": "WebSocket 服务器配置"
+    "host": "0.0.0.0",
+    "httpPort": 19274,
+    "wsPort": 19275
   },
-
-  "live2d": {
-    "enabled": true,
-    "modelPath": "D:/models/live2d/my_model",
-    "comment": "Live2D 模型路径，指向包含 model.json 的目录",
-
-    "window": {
-      "width": 800,
-      "height": 600,
-      "x": 100,
-      "y": 100,
-      "alwaysOnTop": true,
-      "transparent": true,
-      "frame": false
+  "events": {
+    "enabledEvents": {
+      "danmaku": true,
+      "gift": true,
+      "superchat": true,
+      "enter": false,
+      "follow": true,
+      "like": false,
+      "guard": true,
+      "liveStart": true,
+      "liveEnd": true
     },
-
-    "defaultExpression": "normal",
-    "defaultScale": 1.0,
-    "defaultPosition": {
-      "x": 0,
-      "y": 0
+    "filters": {
+      "minGiftPrice": 0,
+      "minSuperchatAmount": 0
     }
   },
-
+  "llm": {
+    "provider": "openai",
+    "baseURL": "https://api.openai.com/v1",
+    "apiKey": "",
+    "model": "gpt-4o-mini",
+    "temperature": 0.7,
+    "maxTokens": 2000
+  },
+  "tts": {
+    "provider": "volcengine",
+    "baseURL": "https://openspeech.bytedance.com",
+    "appId": "",
+    "token": "",
+    "cluster": "volcano_tts",
+    "voiceType": "zh_female_qingxin"
+  },
+  "output": {
+    "danmaku": { "enabled": true, "ratePerMinute": 20 },
+    "display": { "enabled": true, "style": "bubble", "fontSize": 28 },
+    "tts": { "enabled": false, "delayBeforeSpeakMs": 600 }
+  },
   "music": {
-    "enabled": true,
-    "comment": "点歌机配置",
-
-    "sources": ["netease", "qq"],
-    "comment_sources": "支持的音源: netease(网易云), qq(QQ音乐)",
-
-    "maxDuration": 300,
-    "comment_maxDuration": "最大歌曲时长（秒）",
-
-    "autoPlay": true,
-    "comment_autoPlay": "队列为空时是否自动播放空闲歌单",
-
-    "idlePlaylist": [],
-    "comment_idlePlaylist": "空闲歌单（歌曲ID列表）",
-
-    "window": {
-      "width": 400,
-      "height": 600,
-      "x": 920,
-      "y": 100,
-      "alwaysOnTop": true
-    },
-
-    "showLyrics": true,
-    "outputDevice": "default"
+    "defaultSource": "kuwo",
+    "maxDuration": 360,
+    "maxQueueSize": 50,
+    "maxPerUser": 3,
+    "directOrder": { "enabled": false, "keywords": ["点歌"] }
   },
-
-  "display": {
-    "enabled": true,
-    "comment": "展示板配置",
-
-    "window": {
-      "width": 600,
-      "height": 200,
-      "x": 300,
-      "y": 50,
-      "alwaysOnTop": true,
-      "transparent": true,
-      "frame": false
-    },
-
-    "defaultStyle": {
-      "fontSize": 32,
-      "fontFamily": "Microsoft YaHei",
-      "color": "#FFFFFF",
-      "backgroundColor": "rgba(0, 0, 0, 0.7)",
-      "padding": 20
-    }
+  "live2d": {
+    "modelPath": "../cpp-executor/build/Debug/Resources/Haru/Haru.model3.json"
   },
-
   "audio": {
-    "enabled": true,
-    "comment": "音频播放配置（TTS等）",
-
-    "outputDevice": "default",
-    "defaultVolume": 1.0
+    "outputDevice": "",
+    "ttsVolume": 80
   },
-
-  "logging": {
-    "level": "info",
-    "comment_level": "日志级别: debug / info / warn / error",
-
-    "logFile": "./logs/backend.log",
-    "maxFileSize": 10485760,
-    "comment_maxFileSize": "日志文件最大大小（字节，默认10MB）",
-
-    "maxFiles": 5
+  "cpp": {
+    "executablePath": "../cpp-executor/build/Debug/vtuber_executor.exe",
+    "configPath": "../cpp-executor/config/executor.json",
+    "autoStart": false,
+    "ipcPort": 19276
   }
 }
