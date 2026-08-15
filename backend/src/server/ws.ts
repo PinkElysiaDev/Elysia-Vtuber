@@ -105,16 +105,6 @@ export class WsServer {
     }
   }
 
-  /** 向单个连接发送 */
-  sendTo(ws: WebSocket, method: string, params?: unknown): void {
-    if (ws.readyState !== WebSocket.OPEN) return
-    ws.send(JSON.stringify({ jsonrpc: '2.0', method, params }))
-  }
-
-  connectionCount(): number {
-    return this.peers.size
-  }
-
   async stop(): Promise<void> {
     if (!this.wss) return
     await new Promise<void>((resolve) => {

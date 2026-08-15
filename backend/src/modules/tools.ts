@@ -1,7 +1,7 @@
 import type { RpcHandler } from '../core/rpc'
 import { objectSchema, ToolRegistry } from '../core/tools'
-import type { OutputRouter, ReplySegment } from './output'
-import { parseReplyContent } from './output'
+import type { OutputRouter } from './output'
+import { normalizeSegments } from './output'
 import type { TriggerEngine } from './triggers'
 import type { LLMSession } from '../llm/session'
 import type { StandardEvent } from './events'
@@ -171,21 +171,6 @@ export function buildRuntimeModule(deps: ToolModuleDeps): Record<string, RpcHand
       return deps.output.routeContent(String(rec.content ?? rec.text ?? ''))
     },
   }
-}
-
-function normalizeSegments(raw: unknown): ReplySegment[] {
-  if (!Array.isArray(raw)) return parseReplyContent(typeof raw === 'string' ? raw : '')
-  return raw.map((item) => {
-    if (!item || typeof item !== 'object') return { method: 'danmaku' as const, text: String(item ?? '') }
-    const rec = item as Record<string, unknown>
-    const method = rec.method === 'display' || rec.method === 'tts' ? rec.method : 'danmaku'
-    return {
-      method,
-      text: String(rec.text ?? ''),
-      displayStyle: rec.displayStyle ? String(rec.displayStyle) : undefined,
-      emotion: rec.emotion ? String(rec.emotion) : undefined,
-    }
-  })
 }
 
 async function cppCall(cpp: CppClient, method: string, args: Record<string, unknown>): Promise<unknown> {

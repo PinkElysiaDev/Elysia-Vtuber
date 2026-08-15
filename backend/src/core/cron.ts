@@ -29,12 +29,12 @@ export function cronMinuteKey(date: Date = new Date()): string {
   ].join('-')
 }
 
-function fieldMatches(field: string, value: number, min: number, max: number, dow = false): boolean {
+function fieldMatches(field: string, value: number, min: number, max: number, isDayOfWeek = false): boolean {
   if (field === '*') return true
-  return field.split(',').some((part) => matchPart(part.trim(), value, min, max, dow))
+  return field.split(',').some((part) => matchPart(part.trim(), value, min, max, isDayOfWeek))
 }
 
-function matchPart(part: string, value: number, min: number, max: number, dow: boolean): boolean {
+function matchPart(part: string, value: number, min: number, max: number, isDayOfWeek: boolean): boolean {
   if (!part) return false
   let range = part
   let step = 1
@@ -45,7 +45,7 @@ function matchPart(part: string, value: number, min: number, max: number, dow: b
     if (!Number.isFinite(step) || step <= 0) return false
   }
 
-  const actual = dow ? normalizeDow(value) : value
+  const actual = isDayOfWeek ? normalizeDow(value) : value
 
   if (range === '*' || range === '') {
     return ((actual - min) % step) === 0
@@ -56,7 +56,7 @@ function matchPart(part: string, value: number, min: number, max: number, dow: b
     let a = Number(aRaw)
     let b = Number(bRaw)
     if (!Number.isFinite(a) || !Number.isFinite(b)) return false
-    if (dow) {
+    if (isDayOfWeek) {
       a = normalizeDow(a)
       b = normalizeDow(b)
       if (a <= b) {
@@ -76,7 +76,7 @@ function matchPart(part: string, value: number, min: number, max: number, dow: b
 
   const n = Number(range)
   if (!Number.isFinite(n)) return false
-  const target = dow ? normalizeDow(n) : n
+  const target = isDayOfWeek ? normalizeDow(n) : n
   if (actual !== target) return false
   return step === 1
 }

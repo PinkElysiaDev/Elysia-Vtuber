@@ -2,7 +2,7 @@ import type { LLMGateway } from '../llm/gateway'
 import type { ChatMessage, ToolCall } from '../llm/types'
 import type { ToolRegistry } from '../core/tools'
 import type { StandardEvent } from '../modules/events'
-import { expandTemplate, formatEvents } from '../core/variables'
+import { expandTemplate } from '../core/variables'
 import { defaultUserPrompt } from '../modules/output'
 
 export interface SessionDeps {
@@ -28,6 +28,8 @@ const DEFAULT_SYSTEM = [
   '不要编造未发生的礼物或上舰。点歌等能力通过对应工具完成。',
 ].join('\n')
 
+const DEFAULT_MAX_ROUNDS = 6
+
 export class LLMSession {
   constructor(private readonly deps: SessionDeps) {}
 
@@ -41,7 +43,7 @@ export class LLMSession {
     const user = expandTemplate(prompt || defaultUserPrompt(events), ctx)
     const messages: ChatMessage[] = [
       { role: 'system', content: system },
-      { role: 'user', content: user || `事件：\n${formatEvents(events)}` },
+      { role: 'user', content: user },
     ]
     return this.loop(messages)
   }
@@ -51,7 +53,7 @@ export class LLMSession {
   }
 
   private async loop(messages: ChatMessage[], useTools = true): Promise<SessionResult> {
-    const maxRounds = this.deps.maxRounds ?? 6
+    const maxRounds = this.deps.maxRounds ?? DEFAULT_MAX_ROUNDS
     const specs = useTools ? this.deps.tools.list() : []
     const toolCalls: Array<{ name: string; ok: boolean }> = []
     let content = ''
@@ -91,13 +93,9 @@ export class LLMSession {
   }
 
   private async invoke(call: ToolCall): Promise<{ ok: boolean; text: string }> {
-    try {
-      const result = await this.deps.tools.call(call.name, call.arguments ?? {})
-      const text = typeof result === 'string' ? result : JSON.stringify(result ?? {})
-      const failed = result && typeof result === 'object' && (result as any).success === false
-      return { ok: !failed, text }
-    } catch (err) {
-      return { ok: false, text: JSON.stringify({ success: false, error: String(err) }) }
-    }
+    const result = await this.deps.tools.call(call.name, call.arguments ?? {})
+    const text = typeof result === 'string' ? result : JSON.stringify(result ?? {})
+    const failed = result && typeof result === 'object' && (result as any).success === false
+    return { ok: !failed, text }
   }
 }

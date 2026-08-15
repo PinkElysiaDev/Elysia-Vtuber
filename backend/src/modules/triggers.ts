@@ -100,7 +100,7 @@ export class TriggerEngine {
     const existing = this.batches.get(rule.id)
     const events = existing ? existing.events : []
     events.push(event)
-    const delay = Math.max(0, rule.delayMs || 0)
+    const delay = Math.max(0, rule.delayMs)
     const deadline = resetDeadline || !existing ? now + delay : existing.deadline
     if (rule.maxBatch > 0 && events.length >= rule.maxBatch) {
       this.batches.delete(rule.id)

@@ -106,7 +106,7 @@ export class BackendClient {
   }
 
   request(method: string, params: any = {}): Promise<any> {
-    if (!this.connected || !this.ws) {
+    if (!this.connected) {
       return Promise.reject(new Error('backend not connected'))
     }
 

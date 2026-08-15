@@ -13,15 +13,15 @@ const UA = {
 const CONVERT_SOURCE = 'kwplayer_ar_5.1.0.0_B_jiakong_vh.apk'
 const URL_RE = /http[^\s"]+/
 
-function generateSecret(t: string, e: string): string {
-  if (!e) return ''
+function generateSecret(token: string, cookieValue: string): string {
+  if (!cookieValue) return ''
   let n = ''
-  for (let i = 0; i < e.length; i++) n += String(e.charCodeAt(i))
+  for (let i = 0; i < cookieValue.length; i++) n += String(cookieValue.charCodeAt(i))
   const r = Math.floor(n.length / 5)
   let o0 = n[r] + n[2 * r] + n[3 * r] + n[4 * r]
   if (5 * r < n.length) o0 += n[5 * r]
   const o = Number(o0)
-  const l = Math.ceil(e.length / 2)
+  const l = Math.ceil(cookieValue.length / 2)
   const c = 2 ** 31 - 1
   if (o < 2) return ''
   const d = Math.floor(Math.random() * 100000000)
@@ -41,15 +41,15 @@ function generateSecret(t: string, e: string): string {
   }
   let nValue = (o * Number(n) + l) % c
   let f = ''
-  for (let i = 0; i < t.length; i++) {
-    const h = t.charCodeAt(i) ^ Math.floor((nValue / c) * 255)
+  for (let i = 0; i < token.length; i++) {
+    const h = token.charCodeAt(i) ^ Math.floor((nValue / c) * 255)
     f += h < 16 ? `0${h.toString(16)}` : h.toString(16)
     nValue = (o * nValue + l) % c
   }
   return f + d.toString(16).padStart(8, '0')
 }
 
-function mobiGet(path: string): Promise<string> {
+function mobiRequest(path: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const socket = net.connect({ host: 'mobi.kuwo.cn', port: 80 })
     const chunks: Buffer[] = []
@@ -135,7 +135,7 @@ export class KuwoProvider implements MediaProvider {
       try {
         const query = `user=0&corp=kuwo&source=${CONVERT_SOURCE}&p2p=1&type=convert_url2&sig=0&format=${format}&rid=${meta.identifier}`
         const path = `/mobi.s?f=kuwo&q=${encodeURIComponent(kuwoEncryptBase64(query))}`
-        const body = await mobiGet(path)
+        const body = await mobiRequest(path)
         const raw = body.match(URL_RE)?.[0] ?? ''
         if (raw) return [{ url: raw, quality: format === 'flac' ? 'sq' : '320k', headers: {} }]
         last = 'empty url'

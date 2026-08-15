@@ -10,6 +10,8 @@ const MIXIN = [
 
 const NAV = 'https://api.bilibili.com/x/web-interface/nav'
 
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000
+
 let cached: { key: string; expire: number } | null = null
 
 export function extractWbiKey(imgUrl: string, subUrl: string): string {
@@ -37,7 +39,7 @@ export async function getWbiKey(headers: Record<string, string>): Promise<string
   const sub = String(data.data?.wbi_img?.sub_url ?? '')
   if (!img || !sub) throw new Error('bilivideo: wbi keys missing')
   const key = extractWbiKey(img, sub)
-  cached = { key, expire: Date.now() + 2 * 60 * 60 * 1000 }
+  cached = { key, expire: Date.now() + CACHE_TTL_MS }
   return key
 }
 

@@ -16,12 +16,4 @@ export class EventHistory {
     if (n <= 0) return []
     return this.items.slice(-n)
   }
-
-  clear(): void {
-    this.items = []
-  }
-
-  get size(): number {
-    return this.items.length
-  }
 }

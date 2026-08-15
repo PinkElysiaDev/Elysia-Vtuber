@@ -5,6 +5,12 @@ import type { AudioConfig, TTSConfig } from '../config'
 import type { CppClient } from '../cpp/client'
 import { synthesize, splitSpeech, TtsError } from './client'
 
+const MIN_ENDED_MS = 1500
+const EXTRA_ENDED_MS = 1500
+const MS_PER_CHAR = 220
+const MIN_ESTIMATE_MS = 1200
+const TITLE_MAX_CHARS = 40
+
 export interface TtsEngineDeps {
   getTts: () => TTSConfig
   getAudio: () => AudioConfig
@@ -44,11 +50,6 @@ export class TtsEngine {
     this.deps.broadcast('tts.queued', { count: parts.length, text })
     void this.pump()
     return { queued: this.queue.length }
-  }
-
-  async speakNow(text: string): Promise<{ ok: boolean; message: string }> {
-    this.speak(text)
-    return { ok: true, message: '已加入语音队列' }
   }
 
   stop(): { ok: boolean } {
@@ -93,11 +94,11 @@ export class TtsEngine {
       const audio = this.deps.getAudio()
       const file = path.join(os.tmpdir(), `vtuber-tts-${Date.now()}.mp3`)
       fs.writeFileSync(file, result.audio)
-      const ended = this.waitForEnded(Math.max(1500, (result.duration || estimateMs(text)) + 1500))
+      const ended = this.waitForEnded(Math.max(MIN_ENDED_MS, (result.duration || estimateMs(text)) + EXTRA_ENDED_MS))
       const play = await this.playerCall('player.play', {
         channel: 'tts',
         url: fileToUrl(file),
-        title: text.slice(0, 40),
+        title: text.slice(0, TITLE_MAX_CHARS),
         volume: audio.ttsVolume,
         device: audio.outputDevice,
       })
@@ -128,17 +129,12 @@ export class TtsEngine {
   }
 
   private async playerCall(method: string, args: Record<string, unknown>): Promise<unknown> {
-    if (!this.deps.cpp.isConnected()) return { ok: false, error: 'C++ 执行器未连接' }
-    try {
-      return await this.deps.cpp.request(method, args)
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
+    return this.deps.cpp.safeRequest(method, args)
   }
 }
 
 function estimateMs(text: string): number {
-  return Math.max(1200, text.length * 220)
+  return Math.max(MIN_ESTIMATE_MS, text.length * MS_PER_CHAR)
 }
 
 function fileToUrl(file: string): string {

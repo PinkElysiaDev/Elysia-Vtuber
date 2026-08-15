@@ -9,6 +9,10 @@ import type { MediaInfo, MetaData, NowPlaying, QueueItem } from './types'
 import { MusicError } from './types'
 import { findLyric } from './lyric'
 
+const RETRY_DELAY_MS = 500
+
+type AdvanceReason = 'auto' | 'skip' | 'ended'
+
 export interface JukeboxDeps {
   getConfig: () => MusicConfig
   cpp: CppClient
@@ -244,7 +248,7 @@ export class Jukebox {
     await this.advance('auto')
   }
 
-  private async advance(reason: string): Promise<void> {
+  private async advance(reason: AdvanceReason): Promise<void> {
     if (this.advancing) return
     this.advancing = true
     try {
@@ -287,7 +291,7 @@ export class Jukebox {
       this.pendingPlay = null
       this.emitState()
       if (this.queue.length || this.deps.getConfig().idlePlaylist.length) {
-        setTimeout(() => { void this.ensurePlaying() }, 500)
+        setTimeout(() => { void this.ensurePlaying() }, RETRY_DELAY_MS)
       }
     } finally {
       this.advancing = false
@@ -319,12 +323,7 @@ export class Jukebox {
   }
 
   private async playerCall(method: string, args: Record<string, unknown>): Promise<unknown> {
-    if (!this.deps.cpp.isConnected()) return { ok: false, error: 'C++ 执行器未连接' }
-    try {
-      return await this.deps.cpp.request(method, args)
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
+    return this.deps.cpp.safeRequest(method, args)
   }
 
   private activeItems(): QueueItem[] {

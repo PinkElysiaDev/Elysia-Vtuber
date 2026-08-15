@@ -40,61 +40,31 @@ export class EventBridge {
       })
     }
 
-    if (enabled.danmaku) {
-      bind('bililive/danmaku', (s) => this.standard(s, 'danmaku', {
-        content: s.content ?? s.msg ?? s.message ?? '',
-      }))
-    }
-
-    if (enabled.gift) {
-      bind('bililive/gift', (s) => this.standard(s, 'gift', {
+    const bindings: Array<[keyof typeof enabled, string, (s: any) => Record<string, unknown>]> = [
+      ['danmaku', 'bililive/danmaku', (s) => ({ content: s.content ?? s.msg ?? s.message ?? '' })],
+      ['gift', 'bililive/gift', (s) => ({
         giftName: s.giftName ?? s.gift_name,
         num: s.num ?? s.gift_num,
         price: s.price,
         totalPrice: s.totalPrice ?? s.price,
         coinType: s.coinType,
         paid: s.paid,
-      }))
-    }
-
-    if (enabled.superchat) {
-      bind('bililive/superchat', (s) => this.standard(s, 'superchat', {
-        price: s.price ?? s.rmb,
-        message: s.message ?? s.content ?? s.msg ?? '',
-      }))
-    }
-
-    if (enabled.enter) {
-      bind('bililive/enter', (s) => this.standard(s, 'enter', {}))
-    }
-
-    if (enabled.follow) {
-      bind('bililive/follow', (s) => this.standard(s, 'follow', {}))
-    }
-
-    if (enabled.like) {
-      bind('bililive/like', (s) => this.standard(s, 'like', {
-        count: s.likeCount ?? s.count ?? 1,
-      }))
-    }
-
-    if (enabled.guard) {
-      bind('bililive/guard', (s) => this.standard(s, 'guard', {
+      })],
+      ['superchat', 'bililive/superchat', (s) => ({ price: s.price ?? s.rmb, message: s.message ?? s.content ?? s.msg ?? '' })],
+      ['enter', 'bililive/enter', () => ({})],
+      ['follow', 'bililive/follow', () => ({})],
+      ['like', 'bililive/like', (s) => ({ count: s.likeCount ?? s.count ?? 1 })],
+      ['guard', 'bililive/guard', (s) => ({
         guardLevel: s.guardLevel ?? s.guard_level,
         num: s.num ?? s.gift_num ?? 1,
         price: s.price,
-      }))
-    }
+      })],
+      ['liveStart', 'bililive/live-start', (s) => ({ title: s.title, areaName: s.areaName ?? s.area_name })],
+      ['liveEnd', 'bililive/live-end', () => ({})],
+    ]
 
-    if (enabled.liveStart) {
-      bind('bililive/live-start', (s) => this.standard(s, 'liveStart', {
-        title: s.title,
-        areaName: s.areaName ?? s.area_name,
-      }))
-    }
-
-    if (enabled.liveEnd) {
-      bind('bililive/live-end', (s) => this.standard(s, 'liveEnd', {}))
+    for (const [flag, eventName, mapper] of bindings) {
+      if (enabled[flag]) bind(eventName, (s) => this.standard(s, flag as string, mapper(s)))
     }
   }
 

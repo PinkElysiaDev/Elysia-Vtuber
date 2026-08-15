@@ -7,13 +7,14 @@ export function buildTtsModule(engine: TtsEngine, cpp: CppClient): Record<string
     'tts.speak': async (params) => {
       const text = String((params as any)?.text ?? '')
       if (!text.trim()) throw new Error('tts.speak requires { text }')
-      return engine.speakNow(text)
+      const result = engine.speak(text)
+      return { ok: true, message: '已加入语音队列', ...result }
     },
     'tts.stop': () => engine.stop(),
     'tts.status': () => engine.getState(),
     'audio.devices': async () => {
-      if (!cpp.isConnected()) return { ok: false, devices: [], error: 'C++ 执行器未连接' }
-      return cpp.request('player.devices', {})
+      const result = await cpp.safeRequest('player.devices', {})
+      return result.ok ? result : { ok: false, devices: [], error: result.error ?? 'C++ 执行器未连接' }
     },
   }
 }

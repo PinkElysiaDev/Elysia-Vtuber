@@ -12,14 +12,6 @@ export class ToolRegistry {
     this.tools.set(def.name, def)
   }
 
-  unregister(name: string): void {
-    this.tools.delete(name)
-  }
-
-  has(name: string): boolean {
-    return this.tools.has(name)
-  }
-
   list(): Array<{ name: string; description: string; parameters: Record<string, unknown> }> {
     return [...this.tools.values()].map(({ name, description, parameters }) => ({
       name,

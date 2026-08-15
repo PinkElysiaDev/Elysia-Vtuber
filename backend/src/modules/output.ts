@@ -1,5 +1,6 @@
 import type { OutputConfig } from '../config'
 import type { StandardEvent } from './events'
+import { formatEvent } from '../core/variables'
 
 export type ReplyMethod = 'danmaku' | 'display' | 'tts'
 
@@ -58,7 +59,7 @@ export class OutputRouter {
     }
     if (method === 'tts') {
       if (!config.tts.enabled) return false
-      const delay = config.tts.delayBeforeSpeakMs || 0
+      const delay = config.tts.delayBeforeSpeakMs
       if (delay > 0) await sleep(delay)
       this.deps.speak(text)
       return true
@@ -88,13 +89,12 @@ export function parseReplyContent(content: string): ReplySegment[] {
     // fall through to unstructured
   }
   return [
-    { method: 'danmaku', text: trimmed },
     { method: 'display', text: trimmed },
-    { method: 'tts', text: trimmed },
   ]
 }
 
-function normalizeSegments(raw: unknown[]): ReplySegment[] {
+export function normalizeSegments(raw: unknown): ReplySegment[] {
+  if (!Array.isArray(raw)) return parseReplyContent(typeof raw === 'string' ? raw : '')
   const out: ReplySegment[] = []
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue
@@ -113,34 +113,7 @@ function normalizeSegments(raw: unknown[]): ReplySegment[] {
 
 export function defaultUserPrompt(events: StandardEvent[]): string {
   if (!events.length) return '现在没有新的直播间事件。请按需要主动互动或执行定时动作。'
-  return `以下是刚收到的直播间事件，请用 send_reply 回复：\n${events.map(summarize).join('\n')}`
-}
-
-function summarize(event: StandardEvent): string {
-  const name = event.user?.name || event.user?.uid || '匿名'
-  const data = event.data ?? {}
-  switch (event.type) {
-    case 'danmaku':
-      return `- 弹幕 ${name}: ${data.content ?? ''}`
-    case 'gift':
-      return `- 礼物 ${name} ${data.giftName ?? '礼物'} x${data.num ?? 1}`
-    case 'superchat':
-      return `- SC ${name} ¥${data.price ?? 0}: ${data.message ?? ''}`
-    case 'guard':
-      return `- 上舰 ${name} 等级${data.guardLevel ?? '?'}`
-    case 'follow':
-      return `- 关注 ${name}`
-    case 'enter':
-      return `- 进入 ${name}`
-    case 'like':
-      return `- 点赞 ${name}`
-    case 'liveStart':
-      return `- 开播 ${data.title ?? ''}`
-    case 'liveEnd':
-      return '- 下播'
-    default:
-      return `- ${event.type} ${name}`
-  }
+  return `以下是刚收到的直播间事件，请用 send_reply 回复：\n${events.map(formatEvent).join('\n')}`
 }
 
 function sleep(ms: number): Promise<void> {

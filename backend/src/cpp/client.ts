@@ -11,25 +11,27 @@ import { RpcClient } from '../core/rpc'
 import type { CppConfig } from '../config'
 import { resolveBackendPath } from '../config'
 
+const PORT_CHECK_TIMEOUT_MS = 1000
+const PORT_RECHECK_TIMEOUT_MS = 500
+const SPAWN_POLL_MS = 300
+const RPC_TIMEOUT_FLOOR_MS = 15000
+
 export class CppClient {
   private child: ChildProcess | null = null
   private rpc: RpcClient
   private status: 'stopped' | 'starting' | 'running' | 'error' = 'stopped'
-  private statusListeners = new Set<(status: string) => void>()
 
   constructor(private config: CppConfig) {
     this.rpc = new RpcClient(`ws://127.0.0.1:${config.ipcPort}`, {
       reconnectMs: config.reconnectMs,
-      timeoutMs: Math.max(config.startTimeoutMs, 15000),
+      timeoutMs: Math.max(config.startTimeoutMs, RPC_TIMEOUT_FLOOR_MS),
       peer: 'node',
     })
     this.rpc.on('connected', () => {
       this.status = 'running'
-      this.notifyStatus()
     })
     this.rpc.on('disconnected', () => {
       this.status = 'stopped'
-      this.notifyStatus()
     })
   }
 
@@ -41,16 +43,7 @@ export class CppClient {
     return this.status
   }
 
-  onStatusChange(fn: (status: string) => void): () => void {
-    this.statusListeners.add(fn)
-    return () => this.statusListeners.delete(fn)
-  }
-
-  private notifyStatus(): void {
-    for (const fn of this.statusListeners) fn(this.status)
-  }
-
-  private async isPortOpen(port: number, host: string, timeoutMs = 1000): Promise<boolean> {
+  private async isPortOpen(port: number, host: string, timeoutMs = PORT_CHECK_TIMEOUT_MS): Promise<boolean> {
     return new Promise((resolve) => {
       const socket = new net.Socket()
       socket.setTimeout(timeoutMs)
@@ -70,7 +63,6 @@ export class CppClient {
     }
 
     this.status = 'starting'
-    this.notifyStatus()
 
     const executable = resolveBackendPath(this.config.executablePath)
     const configPath = resolveBackendPath(this.config.configPath)
@@ -86,33 +78,29 @@ export class CppClient {
       this.child.stderr?.on('data', (d) => console.error(`[cpp] ${String(d).trimEnd()}`))
       this.child.on('error', (err) => {
         this.status = 'error'
-        this.notifyStatus()
         console.error('[cpp] spawn failed:', err)
       })
       this.child.on('exit', (code) => {
         if (this.status === 'starting') this.status = 'error'
         else this.status = 'stopped'
-        this.notifyStatus()
         console.log(`[cpp] process exited: ${code}`)
       })
     } catch (err) {
       this.status = 'error'
-      this.notifyStatus()
       console.error('[cpp] spawn failed:', err)
       return false
     }
 
     const deadline = Date.now() + this.config.startTimeoutMs
     while (Date.now() < deadline) {
-      if (await this.isPortOpen(this.config.ipcPort, '127.0.0.1', 500)) {
+      if (await this.isPortOpen(this.config.ipcPort, '127.0.0.1', PORT_RECHECK_TIMEOUT_MS)) {
         await this.rpc.connect()
         return true
       }
-      await new Promise((r) => setTimeout(r, 300))
+      await new Promise((r) => setTimeout(r, SPAWN_POLL_MS))
     }
 
     this.status = 'error'
-    this.notifyStatus()
     return false
   }
 
@@ -122,7 +110,6 @@ export class CppClient {
     this.child = null
     this.rpc.close()
     this.status = 'stopped'
-    this.notifyStatus()
   }
 
   /** 重启（保留队列等内部状态由 C++ 侧决定） */
@@ -138,6 +125,17 @@ export class CppClient {
   /** RPC 请求 */
   request(method: string, params?: unknown): Promise<unknown> {
     return this.rpc.request(method, params)
+  }
+
+  /** 请求并吞掉「未连接/失败」异常，统一返回 { ok, error? } */
+  async safeRequest(method: string, params?: unknown): Promise<{ ok: boolean; error?: string; [key: string]: unknown }> {
+    if (!this.isConnected()) return { ok: false, error: 'C++ 执行器未连接' }
+    try {
+      const result = await this.rpc.request(method, params)
+      return result && typeof result === 'object' ? (result as { ok: boolean }) : { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
   }
 
   /** 通知 */

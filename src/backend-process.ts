@@ -4,6 +4,10 @@ import * as path from 'path'
 import type { Logger } from 'koishi'
 import type { Config } from './config'
 
+const PORT_TIMEOUT_MS = 1000
+const POLL_MS = 300
+const RESTART_SETTLE_MS = 400
+
 export class BackendProcessManager {
   private child: ChildProcess | null = null
 
@@ -15,7 +19,7 @@ export class BackendProcessManager {
   async isPortOpen(): Promise<boolean> {
     return new Promise((resolve) => {
       const socket = new net.Socket()
-      socket.setTimeout(1000)
+      socket.setTimeout(PORT_TIMEOUT_MS)
       socket.once('connect', () => {
         socket.destroy()
         resolve(true)
@@ -70,7 +74,7 @@ export class BackendProcessManager {
         this.logger.success(`backend started at ${this.config.host}:${this.config.wsPort}`)
         return true
       }
-      await new Promise((resolve) => setTimeout(resolve, 300))
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS))
     }
 
     this.logger.error('backend start timeout')
@@ -85,7 +89,7 @@ export class BackendProcessManager {
 
   async restart(): Promise<boolean> {
     this.stop()
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    await new Promise((resolve) => setTimeout(resolve, RESTART_SETTLE_MS))
     return this.start()
   }
 }

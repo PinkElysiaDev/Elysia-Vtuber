@@ -81,6 +81,7 @@
   },
   "tts": {
     "provider": "volcengine",
+    "baseURL": "https://openspeech.bytedance.com",
     "appId": "",
     "token": "",
     "cluster": "volcano_tts",

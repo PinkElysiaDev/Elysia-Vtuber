@@ -34,7 +34,10 @@ export async function httpRequest(url: string, options: {
       location: headers.location ?? '',
       headers,
       json<T = any>() {
-        try { return JSON.parse(text) as T } catch { return {} as T }
+        try { return JSON.parse(text) as T } catch {
+          console.warn(`[http] invalid JSON from ${url} (${text.slice(0, 120)})`)
+          return {} as T
+        }
       },
     }
   } finally {

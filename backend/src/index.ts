@@ -30,6 +30,8 @@ import { buildTtsModule } from './modules/tts'
 
 export const VERSION = '0.2.0'
 
+const HISTORY_CONTEXT = 20
+
 class VtuberService {
   config: BackendConfig
   configPath: string
@@ -84,7 +86,7 @@ class VtuberService {
       tools: this.tools,
       getSystemPrompt: () => this.config.llm.systemPrompt,
       getRoomId: () => this.getRoomId(),
-      getHistory: () => this.history.recent(20),
+      getHistory: () => this.history.recent(HISTORY_CONTEXT),
     })
     this.jukebox = new Jukebox({
       getConfig: () => this.config.music,
@@ -152,7 +154,7 @@ class VtuberService {
   private async runAction(action: TriggerAction, events: StandardEvent[]): Promise<void> {
     const ctx = {
       events,
-      history: this.history.recent(20),
+      history: this.history.recent(HISTORY_CONTEXT),
       roomId: this.getRoomId(),
     }
     if (action.type === 'wait') {

@@ -132,11 +132,6 @@ export class RpcServer extends EventEmitter {
       return isNotification ? null : rpc.error(message.id ?? null, code, msg)
     }
   }
-
-  /** 序列化一条响应消息（供具体 server 实现发送） */
-  static stringify(message: RpcMessage): string {
-    return JSON.stringify(message)
-  }
 }
 
 /**
@@ -239,12 +234,6 @@ export class RpcClient extends EventEmitter {
     this.ws!.send(JSON.stringify(rpc.notify(method, params)))
   }
 
-  /** 发送原始 JSON（连接建立前的队列缓冲等场景） */
-  sendRaw(raw: string): void {
-    if (!this.connected) return
-    this.ws!.send(raw)
-  }
-
   private handleMessage(raw: string): void {
     let message: RpcMessage
     try {
@@ -310,14 +299,6 @@ export class EventBus {
     return () => this.listeners.get(event)?.delete(fn)
   }
 
-  once(event: string, fn: (...args: unknown[]) => void): () => void {
-    const off = this.on(event, (...args) => {
-      off()
-      fn(...args)
-    })
-    return off
-  }
-
   emit(event: string, ...args: unknown[]): void {
     const set = this.listeners.get(event)
     if (!set) return
@@ -328,10 +309,5 @@ export class EventBus {
         console.error(`[eventbus] listener error for ${event}:`, err)
       }
     }
-  }
-
-  /** 订阅该事件的所有处理器数量 */
-  count(event: string): number {
-    return this.listeners.get(event)?.size ?? 0
   }
 }

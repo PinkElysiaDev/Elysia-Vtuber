@@ -355,6 +355,9 @@ void App::frame() {
 }
 
 nlohmann::json App::handleRpc(const std::string& method, const nlohmann::json& params) {
+  if (method.rfind("live2d.", 0) == 0) return dispatchLive2d(method, params);
+  if (method.rfind("player.", 0) == 0 || method.rfind("audio.", 0) == 0) return dispatchPlayer(method, params);
+
   if (method == "system.ping") {
     return {{"ok", true}, {"role", "cpp-executor"}};
   }
@@ -371,59 +374,66 @@ nlohmann::json App::handleRpc(const std::string& method, const nlohmann::json& p
     requestQuit();
     return {{"ok", true}};
   }
+  throw std::runtime_error("method not found: " + method);
+}
+
+template <typename Fn>
+nlohmann::json App::runOnRenderThread(Fn&& fn) {
+  auto done = std::make_shared<std::promise<nlohmann::json>>();
+  auto future = done->get_future();
+  enqueue([done, fn = std::forward<Fn>(fn)]() mutable {
+    try {
+      done->set_value(fn());
+    } catch (...) {
+      done->set_value({{"ok", false}, {"error", "render thread exception"}});
+    }
+  });
+  return future.get();
+}
+
+nlohmann::json App::dispatchLive2d(const std::string& method, const nlohmann::json& params) {
   if (method == "live2d.status" || method == "live2d.list") {
     return model_ ? model_->Status() : nlohmann::json{{"loaded", false}};
   }
   if (method == "live2d.load") {
     const std::string path = params.value("path", config_.modelPath);
-    auto done = std::make_shared<std::promise<nlohmann::json>>();
-    auto future = done->get_future();
-    enqueue([this, path, done]() {
+    return runOnRenderThread([this, path]() {
       model_ = std::make_unique<Live2DModel>();
       const bool ok = model_->Load(path, device_, width_, height_);
-      done->set_value({{"ok", ok}, {"live2d", model_->Status()}});
+      return nlohmann::json{{"ok", ok}, {"live2d", model_->Status()}};
     });
-    return future.get();
   }
   if (method == "live2d.expression") {
     const std::string name = params.value("name", "");
-    auto done = std::make_shared<std::promise<nlohmann::json>>();
-    auto future = done->get_future();
-    enqueue([this, name, done]() {
-      done->set_value({{"ok", model_ && model_->SetExpression(name)}, {"name", name}});
+    return runOnRenderThread([this, name]() {
+      return nlohmann::json{{"ok", model_ && model_->SetExpression(name)}, {"name", name}};
     });
-    return future.get();
   }
   if (method == "live2d.resetExpression") {
-    auto done = std::make_shared<std::promise<nlohmann::json>>();
-    auto future = done->get_future();
-    enqueue([this, done]() {
-      done->set_value({{"ok", model_ && model_->ResetExpression()}});
+    return runOnRenderThread([this]() {
+      return nlohmann::json{{"ok", model_ && model_->ResetExpression()}};
     });
-    return future.get();
   }
   if (method == "live2d.motion") {
     const std::string group = params.value("group", "Idle");
     const int index = params.value("index", 0);
-    auto done = std::make_shared<std::promise<nlohmann::json>>();
-    auto future = done->get_future();
-    enqueue([this, group, index, done]() {
-      done->set_value({{"ok", model_ && model_->StartMotion(group, index)}, {"group", group}, {"index", index}});
+    return runOnRenderThread([this, group, index]() {
+      return nlohmann::json{{"ok", model_ && model_->StartMotion(group, index)}, {"group", group}, {"index", index}};
     });
-    return future.get();
   }
   if (method == "live2d.transform") {
     const float scale = params.value("scale", 1.0f);
     const float x = params.value("x", 0.0f);
     const float y = params.value("y", 0.0f);
-    auto done = std::make_shared<std::promise<nlohmann::json>>();
-    auto future = done->get_future();
-    enqueue([this, scale, x, y, done]() {
+    return runOnRenderThread([this, scale, x, y]() {
       if (model_) model_->SetTransform(scale, x, y);
-      done->set_value({{"ok", static_cast<bool>(model_)}, {"scale", scale}, {"x", x}, {"y", y}});
+      return nlohmann::json{{"ok", static_cast<bool>(model_)}, {"scale", scale}, {"x", x}, {"y", y}};
     });
-    return future.get();
   }
+  throw std::runtime_error("method not found: " + method);
+}
+
+nlohmann::json App::dispatchPlayer(const std::string& method, const nlohmann::json& params) {
   if (method == "player.play") {
     if (!player_) return {{"ok", false}, {"error", "player not ready"}};
     return player_->Play(params);

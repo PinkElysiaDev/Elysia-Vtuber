@@ -1,6 +1,51 @@
 import type { LLMConfig } from '../config'
 import type { ChatMessage, ChatRequest, ChatResult, ToolCall, ToolSpec } from './types'
 
+const DEFAULT_TIMEOUT_MS = 60000
+const ERROR_TRUNCATE = 500
+
+function defaultParams(tool: ToolSpec): Record<string, unknown> {
+  return tool.parameters ?? { type: 'object', properties: {} }
+}
+
+function toOpenAITools(tools: ToolSpec[]): unknown[] {
+  return tools.map((tool) => ({
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: defaultParams(tool),
+    },
+  }))
+}
+
+function toResponsesTools(tools: ToolSpec[]): unknown[] {
+  return tools.map((tool) => ({
+    type: 'function',
+    name: tool.name,
+    description: tool.description,
+    parameters: defaultParams(tool),
+  }))
+}
+
+function toAnthropicTools(tools: ToolSpec[]): unknown[] {
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    input_schema: defaultParams(tool),
+  }))
+}
+
+function toGeminiTools(tools: ToolSpec[]): unknown[] {
+  return [{
+    functionDeclarations: tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: defaultParams(tool),
+    })),
+  }]
+}
+
 export class LLMGateway {
   constructor(private config: LLMConfig) {}
 
@@ -32,14 +77,7 @@ export class LLMGateway {
       top_p: this.config.topP,
     }
     if (request.tools?.length) {
-      body.tools = request.tools.map((tool) => ({
-        type: 'function',
-        function: {
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.parameters ?? { type: 'object', properties: {} },
-        },
-      }))
+      body.tools = toOpenAITools(request.tools)
     }
 
     const data = await this.postJson(this.joinUrl(this.base('https://api.openai.com/v1'), '/chat/completions'), body, {
@@ -59,7 +97,6 @@ export class LLMGateway {
       content: typeof message.content === 'string' ? message.content : '',
       finishReason: String(choice.finish_reason ?? ''),
       toolCalls,
-      raw: data,
     }
   }
 
@@ -105,12 +142,7 @@ export class LLMGateway {
       max_output_tokens: this.config.maxTokens,
     }
     if (request.tools?.length) {
-      body.tools = request.tools.map((tool) => ({
-        type: 'function',
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters ?? { type: 'object', properties: {} },
-      }))
+      body.tools = toResponsesTools(request.tools)
     }
 
     const data = await this.postJson(this.joinUrl(this.base('https://api.openai.com/v1'), '/responses'), body, {
@@ -139,7 +171,6 @@ export class LLMGateway {
       content,
       finishReason: String(data?.status ?? ''),
       toolCalls,
-      raw: data,
     }
   }
 
@@ -190,11 +221,7 @@ export class LLMGateway {
     }
     if (system) body.system = system
     if (request.tools?.length) {
-      body.tools = request.tools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.parameters ?? { type: 'object', properties: {} },
-      }))
+      body.tools = toAnthropicTools(request.tools)
     }
 
     const data = await this.postJson(this.joinUrl(this.base('https://api.anthropic.com/v1'), '/messages'), body, {
@@ -218,7 +245,6 @@ export class LLMGateway {
       content,
       finishReason: String(data?.stop_reason ?? ''),
       toolCalls,
-      raw: data,
     }
   }
 
@@ -267,13 +293,7 @@ export class LLMGateway {
     }
     if (system) body.systemInstruction = { parts: [{ text: system }] }
     if (request.tools?.length) {
-      body.tools = [{
-        functionDeclarations: request.tools.map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.parameters ?? { type: 'object', properties: {} },
-        })),
-      }]
+      body.tools = toGeminiTools(request.tools)
     }
 
     const base = this.base('https://generativelanguage.googleapis.com/v1beta')
@@ -298,7 +318,6 @@ export class LLMGateway {
       content,
       finishReason: String(candidate.finishReason ?? ''),
       toolCalls,
-      raw: data,
     }
   }
 
@@ -322,7 +341,7 @@ export class LLMGateway {
       ...extraHeaders,
     }
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), this.config.timeoutMs || 60000)
+    const timer = setTimeout(() => controller.abort(), this.config.timeoutMs || DEFAULT_TIMEOUT_MS)
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -332,7 +351,7 @@ export class LLMGateway {
       })
       const text = await res.text()
       if (!res.ok) {
-        throw new Error(`LLM HTTP ${res.status}: ${text.slice(0, 500)}`)
+        throw new Error(`LLM HTTP ${res.status}: ${text.slice(0, ERROR_TRUNCATE)}`)
       }
       return text ? JSON.parse(text) : {}
     } catch (err) {

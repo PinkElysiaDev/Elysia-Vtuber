@@ -22,7 +22,6 @@ export interface ChatResult {
   content: string
   finishReason: string
   toolCalls: ToolCall[]
-  raw?: unknown
 }
 
 export interface ChatRequest {

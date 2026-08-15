@@ -9,6 +9,7 @@ function fakeCpp() {
   return {
     isConnected: () => true,
     request: async (method, params) => ({ ok: true, method, params }),
+    safeRequest: async (method, params) => ({ ok: true, method, params }),
     onEvent: (event, fn) => {
       handlers.set(event, fn)
       return () => handlers.delete(event)

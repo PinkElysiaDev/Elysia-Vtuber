@@ -43,6 +43,11 @@ class App {
  private:
   App() = default;
 
+  nlohmann::json dispatchLive2d(const std::string& method, const nlohmann::json& params);
+  nlohmann::json dispatchPlayer(const std::string& method, const nlohmann::json& params);
+  template <typename Fn>
+  nlohmann::json runOnRenderThread(Fn&& fn);
+
   bool loadConfig(const std::string& path);
   bool createWindow();
   bool createDevice();
