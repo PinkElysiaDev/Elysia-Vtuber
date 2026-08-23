@@ -136,6 +136,12 @@ class VtuberRPCClient {
         console.warn('[RPCClient] WebSocket disconnected. Retrying in', this.reconnectInterval, 'ms...')
         this.connected = false
         this.declared = false
+        // 断连时清空未决请求，避免调用方永久挂起
+        for (const [, { reject, timer }] of this.pendingRequests) {
+          if (timer) clearTimeout(timer)
+          reject(new Error('WebSocket disconnected'))
+        }
+        this.pendingRequests.clear()
         this.notifyStatus(false)
         this.emit('disconnected', false)
         this.scheduleReconnect()
@@ -152,8 +158,9 @@ class VtuberRPCClient {
 
   handleMessage(data) {
     if (data.id !== undefined && this.pendingRequests.has(data.id)) {
-      const { resolve, reject } = this.pendingRequests.get(data.id)
+      const { resolve, reject, timer } = this.pendingRequests.get(data.id)
       this.pendingRequests.delete(data.id)
+      if (timer) clearTimeout(timer)
       if (data.error) reject(data.error)
       else resolve(data.result)
       return
@@ -161,14 +168,19 @@ class VtuberRPCClient {
     if (data.method) this.emit(data.method, data.params)
   }
 
-  async call(method, params = {}) {
+  async call(method, params = {}, timeoutMs = 10000) {
     await this.whenReady()
     return new Promise((resolve, reject) => {
       if (!this.isOpen()) {
         return reject(new Error('WebSocket is not connected'))
       }
       const id = this.requestId++
-      this.pendingRequests.set(id, { resolve, reject })
+      // 默认 10s 超时（可按调用覆盖，如批量解析等长操作）
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id)
+        reject(new Error('RPC timeout: ' + method))
+      }, timeoutMs)
+      this.pendingRequests.set(id, { resolve, reject, timer })
       this.ws.send(JSON.stringify({ jsonrpc: '2.0', method, params, id }))
     })
   }

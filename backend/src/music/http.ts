@@ -4,6 +4,8 @@ export interface HttpResponse {
   text: string
   location: string
   headers: Record<string, string>
+  /** 原始 Set-Cookie 列表（登录态提取用） */
+  setCookie: string[]
   json<T = any>(): T
 }
 
@@ -27,12 +29,17 @@ export async function httpRequest(url: string, options: {
     const text = await res.text()
     const headers: Record<string, string> = {}
     res.headers.forEach((value, key) => { headers[key.toLowerCase()] = value })
+    const getSetCookie = (res.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie
+    const setCookie = typeof getSetCookie === 'function'
+      ? getSetCookie.call(res.headers)
+      : (headers['set-cookie'] ? [headers['set-cookie']] : [])
     return {
       status: res.status,
       url: res.url,
       text,
       location: headers.location ?? '',
       headers,
+      setCookie,
       json<T = any>() {
         try { return JSON.parse(text) as T } catch {
           console.warn(`[http] invalid JSON from ${url} (${text.slice(0, 120)})`)

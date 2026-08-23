@@ -35,10 +35,11 @@ async function main() {
   if (h.wsPort !== 19275) throw new Error('health.wsPort expected 19275')
   console.log('health', health.body)
 
-  const settings = await httpGet('http://127.0.0.1:19274/settings.html')
-  if (settings.status !== 200) throw new Error('settings.html not served')
-  if (!settings.body.includes('config.updatePaths')) throw new Error('settings.html missing schema-driven save')
-  if (settings.body.includes("SECTIONS = [\n      ['server'")) throw new Error('settings.html still has Electron hardcoded tabs')
+  // settings.html 已并入首页配置面板
+  const settings = await httpGet('http://127.0.0.1:19274/')
+  if (settings.status !== 200) throw new Error('index.html not served')
+  if (!settings.body.includes('config.updatePaths')) throw new Error('index.html missing schema-driven save')
+  if (settings.body.includes("SECTIONS = [\n      ['server'")) throw new Error('index.html still has Electron hardcoded tabs')
 
   const index = await httpGet('http://127.0.0.1:19274/')
   if (!index.body.includes('完整配置')) throw new Error('index.html is still a stub')

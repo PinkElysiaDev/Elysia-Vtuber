@@ -149,16 +149,29 @@ export class RpcClient extends EventEmitter {
   private manualClose = false
   private reconnectTimer: NodeJS.Timeout | null = null
   private connecting = false
+  private heartbeatTimer: NodeJS.Timeout | null = null
+  private gotPong = true
 
   constructor(
-    private readonly url: string,
-    private readonly options: {
+    private url: string,
+    private options: {
       timeoutMs?: number
       reconnectMs?: number
+      heartbeatMs?: number
       peer?: string
     } = {},
   ) {
     super()
+  }
+
+  /** 配置热更新：应用新的地址/参数；地址变化返回 true（调用方需自行触发重连） */
+  reconfigure(url: string, options: { timeoutMs?: number; reconnectMs?: number; peer?: string }): boolean {
+    if (options.timeoutMs !== undefined) this.options.timeoutMs = options.timeoutMs
+    if (options.reconnectMs !== undefined) this.options.reconnectMs = options.reconnectMs
+    if (options.peer !== undefined) this.options.peer = options.peer
+    if (url === this.url) return false
+    this.url = url
+    return true
   }
 
   get connected(): boolean {
@@ -179,6 +192,7 @@ export class RpcClient extends EventEmitter {
       const onOpen = () => {
         this.connecting = false
         this.clearReconnect()
+        this.startHeartbeat()
         if (this.options.peer) {
           try {
             ws.send(JSON.stringify(rpc.notify('peer.declare', { kind: this.options.peer })))
@@ -188,9 +202,11 @@ export class RpcClient extends EventEmitter {
         resolve()
       }
       ws.once('open', onOpen)
+      ws.on('pong', () => { this.gotPong = true })
       ws.on('message', (data) => this.handleMessage(data.toString()))
       ws.on('close', () => {
         this.connecting = false
+        this.stopHeartbeat()
         this.emit('disconnected')
         this.scheduleReconnect()
       })
@@ -201,6 +217,31 @@ export class RpcClient extends EventEmitter {
         }
       })
     })
+  }
+
+  /** 半开连接探活：一个周期未 pong 即主动断开，触发正常重连流程 */
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    const intervalMs = this.options.heartbeatMs ?? 30_000
+    this.gotPong = true
+    this.heartbeatTimer = setInterval(() => {
+      const ws = this.ws
+      if (!ws || ws.readyState !== WebSocket.OPEN) return
+      if (!this.gotPong) {
+        ws.terminate()
+        return
+      }
+      this.gotPong = false
+      ws.ping()
+    }, intervalMs)
+    this.heartbeatTimer.unref?.()
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
   }
 
   private awaitOpen(): Promise<void> {
@@ -279,6 +320,7 @@ export class RpcClient extends EventEmitter {
   close(): void {
     this.manualClose = true
     this.clearReconnect()
+    this.stopHeartbeat()
     for (const { reject, timer } of this.pending.values()) {
       clearTimeout(timer)
       reject(new Error('RPC closed'))

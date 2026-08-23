@@ -16,6 +16,9 @@ export interface WsPeerInfo {
   id: number
 }
 
+/** 心跳间隔：超过两个周期未 pong 的连接视为半开，主动断开 */
+const HEARTBEAT_INTERVAL_MS = 30_000
+
 export class WsServer {
   private rpc = new RpcServer()
   private wss: WebSocketServer | null = null
@@ -23,6 +26,8 @@ export class WsServer {
   private nextPeerId = 1
   /** kind -> connections */
   private byKind = new Map<string, Set<WebSocket>>()
+  private heartbeatTimer: NodeJS.Timeout | null = null
+  private alivePeers = new Set<WebSocket>()
 
   get handlers(): RpcServer {
     return this.rpc
@@ -33,11 +38,28 @@ export class WsServer {
       this.wss = new WebSocketServer({ port, host })
       this.wss.on('listening', () => {
         console.log(`[ws] RPC server listening on ws://${host}:${port}`)
+        this.startHeartbeat()
         resolve()
       })
       this.wss.on('error', reject)
       this.wss.on('connection', (ws) => this.handleConnection(ws))
     })
+  }
+
+  /** 半开连接（休眠恢复/网络栈重置）不会触发 close，靠 ping/pong 探活清理 */
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer) return
+    this.heartbeatTimer = setInterval(() => {
+      for (const ws of this.peers.keys()) {
+        if (!this.alivePeers.has(ws)) {
+          ws.terminate()
+          continue
+        }
+        this.alivePeers.delete(ws)
+        if (ws.readyState === WebSocket.OPEN) ws.ping()
+      }
+    }, HEARTBEAT_INTERVAL_MS)
+    this.heartbeatTimer.unref?.()
   }
 
   private handleConnection(ws: WebSocket): void {
@@ -46,8 +68,13 @@ export class WsServer {
     this.peers.set(ws, info)
     this.byKind.set('webui', this.byKind.get('webui') ?? new Set())
     this.byKind.get('webui')!.add(ws)
+    this.alivePeers.add(ws)
 
+    ws.on('pong', () => {
+      this.alivePeers.add(ws)
+    })
     ws.on('message', (data) => {
+      this.alivePeers.add(ws)
       void this.handleMessage(ws, data.toString())
     })
     ws.on('close', () => {
@@ -87,6 +114,7 @@ export class WsServer {
 
   private removePeer(ws: WebSocket): void {
     const info = this.peers.get(ws)
+    this.alivePeers.delete(ws)
     if (!info) return
     this.peers.delete(ws)
     this.byKind.get(info.kind)?.delete(ws)
@@ -106,10 +134,24 @@ export class WsServer {
   }
 
   async stop(): Promise<void> {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
     if (!this.wss) return
-    await new Promise<void>((resolve) => {
-      this.wss!.close(() => resolve())
-    })
+    const wss = this.wss
     this.wss = null
+    // wss.close 的回调要等所有客户端连接关闭才触发，而插件/WebUI 会自动重连，
+    // 必须先主动断开全部连接，否则关闭流程永久挂起
+    for (const client of wss.clients) {
+      client.terminate()
+    }
+    await new Promise<void>((resolve) => {
+      const fallback = setTimeout(resolve, 2000)
+      wss.close(() => {
+        clearTimeout(fallback)
+        resolve()
+      })
+    })
   }
 }

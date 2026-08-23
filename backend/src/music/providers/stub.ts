@@ -36,5 +36,3 @@ export class StubProvider implements MediaProvider {
   }
 }
 
-export const netease = new StubProvider('netease', '需要登录与 weapi，阶段 3 暂未开放播放')
-export const qq = new StubProvider('qq', '需要登录与签名，阶段 3 暂未开放播放')

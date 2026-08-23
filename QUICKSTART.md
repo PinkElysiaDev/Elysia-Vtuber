@@ -9,7 +9,7 @@ npx tsc
 node dist/index.js
 ```
 
-2. 打开 http://127.0.0.1:19274/settings.html ，填房间 ID、LLM、TTS。
+2. 打开 http://127.0.0.1:19274/ ，在配置面板填房间 ID、LLM、TTS。
 3. （可选）启动 C++ 执行器，或在控制台点「启动执行器」。
 4. Koishi 启用 `adapter-bililive` 和 `vtuber`，插件默认连 `ws://localhost:19275`。
 
@@ -17,9 +17,9 @@ node dist/index.js
 
 ## 控制台
 
-- `/` 控制台：点歌、执行器、TTS 试听
-- `/settings.html` 完整配置
+- `/` 控制台：点歌、执行器、TTS 试听、完整配置
 - `/jukebox.html` 点歌叠加层
+- `/nowplaying.html` 歌曲信息叠加层
 - `/display.html` 展示板
 
 ## 排障

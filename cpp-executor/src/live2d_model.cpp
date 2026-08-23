@@ -192,8 +192,10 @@ void Live2DModel::Unload() {
   ReleaseTextures();
   for (auto& [_, motion] : motions_) ACubismMotion::Delete(motion);
   for (auto& [_, motion] : expressions_) ACubismMotion::Delete(motion);
+  for (auto& [_, motion] : extraMotions_) ACubismMotion::Delete(motion);
   motions_.clear();
   expressions_.clear();
+  extraMotions_.clear();
   eyeBlinkIds_.Clear();
   lipSyncIds_.Clear();
   delete setting_;
@@ -202,6 +204,7 @@ void Live2DModel::Unload() {
   modelDir_.clear();
   currentExpression_.clear();
   lastMotionGroup_.clear();
+  lastMotionName_.clear();
   lastMotionIndex_ = -1;
 }
 
@@ -214,13 +217,8 @@ void Live2DModel::Update(float deltaSeconds) {
   if (!loaded_ || !_model) return;
 
   _model->LoadParameters();
-  if (_motionManager->IsFinished()) {
-    if (setting_->GetMotionCount("Idle") > 0) {
-      StartMotion("Idle", 0);
-    }
-  } else {
-    _motionManager->UpdateMotion(_model, deltaSeconds);
-  }
+  // 待机动作由后端按注册配置调度（随机/顺序/间隔），此处不再硬编码重启 Idle_0
+  _motionManager->UpdateMotion(_model, deltaSeconds);
   _model->SaveParameters();
 
   if (_expressionManager) _expressionManager->UpdateMotion(_model, deltaSeconds);
@@ -248,6 +246,45 @@ void Live2DModel::Draw(int width, int height) {
   projection.MultiplyByMatrix(_modelMatrix);
   renderer->SetMvpMatrix(&projection);
   renderer->DrawModel();
+  CacheProjection(projection, width, height);
+}
+
+void Live2DModel::CacheProjection(const Csm::CubismMatrix44& m, int width, int height) {
+  projectionCache_ = m;
+  projWidth_ = width;
+  projHeight_ = height;
+}
+
+bool Live2DModel::GetPixelBounds(int& x, int& y, int& w, int& h) const {
+  if (!loaded_ || !_model || projWidth_ <= 0 || projHeight_ <= 0) return false;
+  const float cw = _model->GetCanvasWidth() / 2.0f;
+  const float ch = _model->GetCanvasHeight() / 2.0f;
+  if (cw <= 0.0f || ch <= 0.0f) return false;
+  CubismMatrix44 proj = projectionCache_;  // GetArray 非 const，非 const 拷贝后使用
+  const float* a = proj.GetArray();
+  float minX = 1e9f, maxX = -1e9f, minY = 1e9f, maxY = -1e9f;
+  const float corners[4][2] = {{-cw, -ch}, {cw, -ch}, {-cw, ch}, {cw, ch}};
+  for (const auto& c : corners) {
+    // CubismMatrix44 列主序、平移在 [12]/[13]
+    const float cx = a[0] * c[0] + a[4] * c[1] + a[12];
+    const float cy = a[1] * c[0] + a[5] * c[1] + a[13];
+    if (cx < minX) minX = cx;
+    if (cx > maxX) maxX = cx;
+    if (cy < minY) minY = cy;
+    if (cy > maxY) maxY = cy;
+  }
+  // clip 空间 → 像素（Y 翻转），并夹取到窗口内
+  auto toPx = [](float v, int max) { return static_cast<int>(v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v) * max); };
+  const int left = toPx((minX + 1.0f) / 2.0f, projWidth_);
+  const int right = toPx((maxX + 1.0f) / 2.0f, projWidth_);
+  const int top = toPx((1.0f - maxY) / 2.0f, projHeight_);
+  const int bottom = toPx((1.0f - minY) / 2.0f, projHeight_);
+  if (right <= left || bottom <= top) return false;
+  x = left;
+  y = top;
+  w = right - left;
+  h = bottom - top;
+  return true;
 }
 
 bool Live2DModel::SetExpression(const std::string& name) {
@@ -275,6 +312,63 @@ bool Live2DModel::StartMotion(const std::string& group, int index) {
   _motionManager->StartMotionPriority(it->second, false, 3);
   lastMotionGroup_ = group;
   lastMotionIndex_ = index;
+  lastMotionName_.clear();
+  return true;
+}
+
+bool Live2DModel::StartMotionByName(const std::string& name) {
+  if (!_motionManager) return false;
+  auto it = extraMotions_.find(name);
+  if (it == extraMotions_.end()) return false;
+  _motionManager->StartMotionPriority(it->second, false, 3);
+  lastMotionGroup_ = "Extra";
+  lastMotionName_ = name;
+  lastMotionIndex_ = -1;
+  return true;
+}
+
+bool Live2DModel::LoadExtra(const nlohmann::json& params) {
+  if (!loaded_) return false;
+  int loadedCount = 0;
+  if (params.contains("expressions") && params["expressions"].is_array()) {
+    for (const auto& item : params["expressions"]) {
+      const std::string name = item.value("name", "");
+      const std::string file = item.value("file", "");
+      if (name.empty() || file.empty()) continue;
+      FileBytes buffer = LoadFile(JoinPath(modelDir_, file));
+      if (buffer.empty()) {
+        LogLine(std::string("[live2d] extra expression missing: ") + file);
+        continue;
+      }
+      auto* motion = LoadExpression(buffer.ptr(), buffer.size(), name.c_str());
+      if (!motion) continue;
+      // 同名覆盖（重复注入）
+      auto it = expressions_.find(name);
+      if (it != expressions_.end()) ACubismMotion::Delete(it->second);
+      expressions_[name] = motion;
+      ++loadedCount;
+    }
+  }
+  if (params.contains("motions") && params["motions"].is_array()) {
+    for (const auto& item : params["motions"]) {
+      const std::string name = item.value("name", "");
+      const std::string file = item.value("file", "");
+      if (name.empty() || file.empty()) continue;
+      FileBytes buffer = LoadFile(JoinPath(modelDir_, file));
+      if (buffer.empty()) {
+        LogLine(std::string("[live2d] extra motion missing: ") + file);
+        continue;
+      }
+      auto* motion = static_cast<CubismMotion*>(LoadMotion(buffer.ptr(), buffer.size(), name.c_str(), NULL, NULL, nullptr, nullptr, -1));
+      if (!motion) continue;
+      motion->SetEffectIds(eyeBlinkIds_, lipSyncIds_);
+      auto it = extraMotions_.find(name);
+      if (it != extraMotions_.end()) ACubismMotion::Delete(it->second);
+      extraMotions_[name] = motion;
+      ++loadedCount;
+    }
+  }
+  LogLine("[live2d] loadExtra loaded=" + std::to_string(loadedCount));
   return true;
 }
 
@@ -295,9 +389,12 @@ nlohmann::json Live2DModel::Status() const {
       {"lastMotion", {
           {"group", lastMotionGroup_},
           {"index", lastMotionIndex_},
+          {"name", lastMotionName_},
       }},
+      {"motionActive", motionActive()},
       {"expressions", ExpressionNames()},
       {"motions", MotionDetails()},
+      {"namedMotions", NamedMotionList()},
       {"groups", MotionGroups()},
   };
 }
@@ -329,6 +426,13 @@ std::vector<std::string> Live2DModel::MotionGroups() const {
     groups.emplace_back(setting_->GetMotionGroupName(i));
   }
   return groups;
+}
+
+std::vector<std::string> Live2DModel::NamedMotionList() const {
+  std::vector<std::string> names;
+  names.reserve(extraMotions_.size());
+  for (const auto& [name, _] : extraMotions_) names.push_back(name);
+  return names;
 }
 
 }  // namespace vtuber

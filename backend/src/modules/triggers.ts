@@ -26,7 +26,15 @@ export class TriggerEngine {
   private running = false
 
   configure(rules: TriggerConfig[]): void {
-    this.rules = rules.map((rule) => ({ ...rule, eventTypes: [...rule.eventTypes], mergeEvents: [...rule.mergeEvents], actions: [...rule.actions] }))
+    // WebUI 原始 JSON 路径可能写入缺字段的规则，缺省化避免 [...undefined] 抛错
+    // 破坏启动（且该错误发生在配置持久化之后，会把配置文件“砖化”）
+    this.rules = (rules ?? []).map((rule) => ({
+      ...rule,
+      eventTypes: [...(rule.eventTypes ?? [])],
+      mergeEvents: [...(rule.mergeEvents ?? [])],
+      actions: [...(rule.actions ?? [])],
+      delayMs: rule.delayMs ?? 0,
+    }))
   }
 
   getRules(): TriggerConfig[] {

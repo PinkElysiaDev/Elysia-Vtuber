@@ -3,7 +3,9 @@
   "window": {
     "title": "Vtuber Live2D",
     "width": 800,
-    "height": 1000
+    "height": 1000,
+    "transparent": true,
+    "alwaysOnTop": true
   },
   "modelPath": "Resources/Haru/Haru.model3.json"
 }

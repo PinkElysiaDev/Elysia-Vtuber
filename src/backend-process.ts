@@ -1,4 +1,5 @@
 import { spawn, ChildProcess } from 'child_process'
+import * as fs from 'fs'
 import * as net from 'net'
 import * as path from 'path'
 import type { Logger } from 'koishi'
@@ -49,6 +50,12 @@ export class BackendProcessManager {
       ? this.config.workingDir
       : path.resolve(pluginRoot, this.config.workingDir)
 
+    // npm 安装版插件不随附 backend/，缺入口时直接报清楚，避免误导性的 15s 启动超时
+    if (!fs.existsSync(entry)) {
+      this.logger.error(`backend entry not found: ${entry}（若为 npm 安装版插件，请手动启动 vtuber-backend，或将 backend.entryPath 指向现有服务入口）`)
+      return false
+    }
+
     this.logger.info(`starting node backend: ${this.config.nodePath} ${entry}`)
 
     try {
@@ -59,6 +66,12 @@ export class BackendProcessManager {
       })
       this.child.stdout?.on('data', (d) => this.logger.info(String(d).trimEnd()))
       this.child.stderr?.on('data', (d) => this.logger.warn(String(d).trimEnd()))
+      // spawn 失败（如 nodePath 无效）以异步 error 事件发出，缺监听会导致
+      // uncaughtException 拖垮整个 Koishi 进程
+      this.child.on('error', (error) => {
+        this.logger.error(`backend process error: ${error.message}`)
+        this.child = null
+      })
       this.child.on('exit', (code) => {
         this.logger.warn(`backend process exited: ${code}`)
         this.child = null
@@ -88,8 +101,22 @@ export class BackendProcessManager {
   }
 
   async restart(): Promise<boolean> {
+    const hadChild = Boolean(this.child)
     this.stop()
     await new Promise((resolve) => setTimeout(resolve, RESTART_SETTLE_MS))
+    // stop 后端口仍开放：要么自家子进程尚未退完（再等一轮），要么是外部进程占用
+    if (await this.isPortOpen()) {
+      if (hadChild) {
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+      }
+      if (await this.isPortOpen()) {
+        this.logger.error(
+          `restart aborted: ${this.config.host}:${this.config.wsPort} 被外部后端进程占用（非本插件拉起，无法重启）。` +
+          `请先结束它：netstat -ano | findstr :${this.config.wsPort} 查 PID，再 taskkill /PID <PID> /F`,
+        )
+        return false
+      }
+    }
     return this.start()
   }
 }

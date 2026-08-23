@@ -57,6 +57,8 @@ function matchPart(part: string, value: number, min: number, max: number, isDayO
     let b = Number(bRaw)
     if (!Number.isFinite(a) || !Number.isFinite(b)) return false
     if (isDayOfWeek) {
+      // 0 与 7 均表示周日，0-7 即整周
+      if (a === 0 && b === 7) return true
       a = normalizeDow(a)
       b = normalizeDow(b)
       if (a <= b) {
@@ -65,8 +67,12 @@ function matchPart(part: string, value: number, min: number, max: number, isDayO
         }
         return false
       }
+      // 环绕区间（如 5-7 / 6-0）：a..6 再接 0..b，两段都要匹配
       for (let i = a; i <= 6; i += step) {
         if (normalizeDow(i) === actual) return true
+      }
+      for (let i = 0; i <= b; i += step) {
+        if (i === actual) return true
       }
       return false
     }

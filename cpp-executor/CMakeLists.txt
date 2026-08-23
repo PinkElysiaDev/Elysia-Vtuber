@@ -67,24 +67,22 @@ target_link_libraries(Framework
   d3dcompiler.lib
 )
 
-add_executable(vtuber_executor WIN32
-  src/main.cpp
-  src/app.cpp
+# ============================================================
+# 公共静态库（platform 工具 + IPC 服务器，两个执行器共用）
+# ============================================================
+add_library(vtuber_common STATIC
+  src/platform.cpp
   src/ipc_server.cpp
-  src/live2d_model.cpp
-  src/wic_texture.cpp
-  src/audio_player.cpp
 )
 
-target_include_directories(vtuber_executor PRIVATE
+target_include_directories(vtuber_common PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${VTUBER_THIRD_PARTY_DIR}/json-3.11.3/single_include
   ${VTUBER_THIRD_PARTY_DIR}/websocketpp-0.8.2
   ${VTUBER_THIRD_PARTY_DIR}/asio-asio-1-30-2/asio/include
-  ${CORE_PATH}/include
 )
 
-target_compile_definitions(vtuber_executor PRIVATE
+target_compile_definitions(vtuber_common PUBLIC
   ASIO_STANDALONE
   _WEBSOCKETPP_CPP11_STL_
   _WEBSOCKETPP_CPP11_THREAD_
@@ -94,7 +92,34 @@ target_compile_definitions(vtuber_executor PRIVATE
   WIN32_LEAN_AND_MEAN
 )
 
+target_link_libraries(vtuber_common PUBLIC ws2_32)
+
+# ============================================================
+# 音频执行器（无窗口，纯 XAudio2 播放）
+# ============================================================
+add_executable(audio_executor WIN32
+  src/audio_main.cpp
+  src/audio_player.cpp
+)
+
+target_link_libraries(audio_executor PRIVATE vtuber_common)
+
+# ============================================================
+# Live2D 执行器（D3D11 渲染 + 窗口交互）
+# ============================================================
+add_executable(vtuber_executor WIN32
+  src/main.cpp
+  src/app.cpp
+  src/live2d_model.cpp
+  src/wic_texture.cpp
+)
+
+target_include_directories(vtuber_executor PRIVATE
+  ${CORE_PATH}/include
+)
+
 target_link_libraries(vtuber_executor PRIVATE
+  vtuber_common
   Framework
   Live2DCubismCore
   d3d11
@@ -103,14 +128,19 @@ target_link_libraries(vtuber_executor PRIVATE
   windowscodecs
   ws2_32
   ole32
-  mfplay
-  mfplat
-  winhttp
-  shlwapi
 )
 
 set_target_properties(vtuber_executor PROPERTIES
   VS_DEBUGGER_WORKING_DIRECTORY $<TARGET_FILE_DIR:vtuber_executor>
+)
+set_target_properties(audio_executor PROPERTIES
+  VS_DEBUGGER_WORKING_DIRECTORY $<TARGET_FILE_DIR:audio_executor>
+)
+
+add_custom_command(TARGET audio_executor POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_CURRENT_SOURCE_DIR}/config/audio-executor.json
+    $<TARGET_FILE_DIR:audio_executor>/audio-executor.json
 )
 
 add_custom_command(TARGET vtuber_executor POST_BUILD

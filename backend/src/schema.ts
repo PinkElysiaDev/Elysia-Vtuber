@@ -36,10 +36,16 @@ export interface FieldSchema {
   /** number 范围 */
   min?: number
   max?: number
+  /** number/slider 步进 */
+  step?: number
   /** 依赖：仅在父字段满足条件时显示 */
   dependsOn?: { field: string; value: unknown }
   /** 长文本用多行输入 */
   multiline?: boolean
+  /** 下拉选项来源 RPC（如 audio.devices，前端异步拉取填充 select） */
+  optionsSource?: string
+  /** UI 控件提示：slider = 用滑杆渲染 number；stringList/channelCommands = 专用列表编辑器（免 JSON） */
+  control?: 'slider' | 'stringList' | 'channelCommands'
 }
 
 export interface SectionSchema {
@@ -47,6 +53,8 @@ export interface SectionSchema {
   title: string
   description?: string
   fields: Record<string, FieldSchema>
+  /** 归属的战术功能面板（live2d | jukebox）；不填则显示在配置中心 */
+  pane?: string
 }
 
 /** 由默认配置生成 section 顺序 */
@@ -57,9 +65,8 @@ export function buildConfigSchema(): SectionSchema[] {
     {
       key: 'server',
       title: '服务网络',
-      description: '逻辑服务（WebUI / RPC）监听配置',
+      description: '逻辑服务（WebUI / RPC）监听配置；直播间房间号在「战术仪表盘」核心遥测指标处编辑',
       fields: {
-        roomId: { type: 'string', label: '直播间 ID', default: d.roomId },
         'server.host': { type: 'string', label: '监听地址', default: d.server.host },
         'server.httpPort': { type: 'number', label: 'WebUI 端口', default: d.server.httpPort },
         'server.wsPort': { type: 'number', label: 'RPC 端口', default: d.server.wsPort },
@@ -68,8 +75,9 @@ export function buildConfigSchema(): SectionSchema[] {
     {
       key: 'events',
       title: '事件接收',
-      description: '配置接收哪些直播间事件（来自 adapter-bililive）',
+      description: '配置接收哪些直播间事件（来自 adapter-bililive）；总开关在「战术仪表盘」房间号卡片处切换',
       fields: {
+        'events.enabled': { type: 'boolean', label: '事件接收总开关（默认关闭，在仪表盘卡片点击启动）', default: false },
         'events.enabledEvents': {
           type: 'object',
           label: '事件开关',
@@ -104,7 +112,7 @@ export function buildConfigSchema(): SectionSchema[] {
     {
       key: 'llm',
       title: 'LLM 大模型',
-      description: '模型网关：支持 chat-completions / anthropic / gemini / responses 协议',
+      description: '模型网关：支持 chat-completions / anthropic / gemini / responses 协议；系统提示词在「提示词调试工坊」面板编辑',
       fields: {
         'llm.provider': {
           type: 'select',
@@ -125,19 +133,12 @@ export function buildConfigSchema(): SectionSchema[] {
         'llm.maxTokens': { type: 'number', label: '最大 Token', min: 1, default: 2000 },
         'llm.topP': { type: 'number', label: 'Top P', min: 0, max: 1, default: 1 },
         'llm.timeoutMs': { type: 'number', label: '超时 (ms)', min: 1000, default: 60000 },
-        'llm.systemPrompt': {
-          type: 'string',
-          label: '系统提示词',
-          description: '支持 {{events}} {{user}} {{content}} {{roomId}} {{history}} {{now}}',
-          default: d.llm.systemPrompt,
-          multiline: true,
-        },
       },
     },
     {
       key: 'tts',
-      title: 'TTS 语音',
-      description: '火山方舟 TTS 与音色克隆',
+      title: '语音合成',
+      description: 'TTS 合成参数（火山 / 克隆）；输出设备与音量在「音频中枢路由」面板',
       fields: {
         'tts.provider': {
           type: 'select',
@@ -157,6 +158,13 @@ export function buildConfigSchema(): SectionSchema[] {
         'tts.speed': { type: 'number', label: '语速', min: 0.5, max: 2, default: 1 },
         'tts.volume': { type: 'number', label: '音量', min: 0, max: 2, default: 1 },
         'tts.pitch': { type: 'number', label: '音调', min: 0.5, max: 2, default: 1 },
+        'tts.tempFileTtlMinutes': {
+          type: 'number',
+          label: '临时音频保留(分钟)',
+          description: 'TTS 合成的临时 mp3 在磁盘上的保留时长，到期自动删除；0 = 播完立即删除',
+          min: 0,
+          default: 30,
+        },
       },
     },
     {
@@ -167,7 +175,7 @@ export function buildConfigSchema(): SectionSchema[] {
         'output.danmaku.enabled': { type: 'boolean', label: '发送弹幕', default: true },
         'output.danmaku.ratePerMinute': { type: 'number', label: '弹幕频率上限(条/分)', min: 1, default: 20 },
         'output.display.enabled': { type: 'boolean', label: '渲染到展示板', default: true },
-        'output.display.fontSize': { type: 'number', label: '展示板字号', min: 10, max: 96, default: 28 },
+        'output.display.fontSize': { type: 'number', label: '展示板字号（未实现，暂不生效）', min: 10, max: 96, default: 28 },
         'output.display.style': {
           type: 'select',
           label: '展示板样式',
@@ -185,7 +193,8 @@ export function buildConfigSchema(): SectionSchema[] {
     {
       key: 'music',
       title: '点歌机',
-      description: '音源、队列、直接点歌与歌曲信息输出',
+      description: '音源、队列、直接点歌与歌曲信息输出（嵌入「点歌机运营中台」面板）',
+      pane: 'jukebox',
       fields: {
         'music.defaultSource': {
           type: 'select',
@@ -203,58 +212,57 @@ export function buildConfigSchema(): SectionSchema[] {
         'music.maxDuration': { type: 'number', label: '歌曲时长上限(秒)', min: 0, default: 360 },
         'music.maxQueueSize': { type: 'number', label: '队列上限', min: 1, default: 50 },
         'music.maxPerUser': { type: 'number', label: '每用户点歌上限', min: 1, default: 3 },
-        'music.directOrder.enabled': { type: 'boolean', label: '直接点歌（绕过 LLM）', default: false },
-        'music.directOrder.keywords': { type: 'json', label: '触发词列表 (JSON)', default: ['点歌'] },
-        'music.directOrder.pluginCommand': { type: 'boolean', label: '注册为插件点歌指令', default: false },
-        'music.idlePlaylist': { type: 'json', label: '空闲歌单 (URL 列表)', default: [] },
-        'music.idleLoop': { type: 'boolean', label: '空闲歌单循环', default: true },
-        'music.nowPlaying.template': {
-          type: 'string',
-          label: '歌曲信息模板',
-          default: '🎵 {{title}} - {{artist}} ({{duration}}s)',
-          multiline: true,
-        },
-        'music.nowPlaying.filePath': { type: 'string', label: '信息输出文件', default: 'data/nowplaying.txt' },
-        'music.nowPlaying.windowEnabled': { type: 'boolean', label: '开启歌曲信息窗口', default: true },
-        'music.outputDevice': { type: 'string', label: '播放输出设备', default: '' },
+        // 直接点歌（enabled/keywords/channelCommands）在点歌机面板「ORDER COMMANDS」专用卡片编辑
+        // 空闲歌单（idlePlaylist/idleLoop）在点歌机面板「IDLE PLAYLIST」专用卡片编辑
+        // 歌曲信息文本输出（多文件 + 变量模板）在点歌机面板「NOW PLAYING OUTPUTS」专用卡片编辑
+        'music.nowPlaying.windowEnabled': { type: 'boolean', label: '开启歌曲信息叠加页 (nowplaying.html)', default: true },
+        // 播放输出设备统一在「音频中枢路由」面板配置，避免双入口
       },
     },
     {
       key: 'live2d',
-      title: 'Live2D',
-      description: 'Live2D 模型与舞台窗口（C++ 执行器原生渲染）',
+      title: 'Live2D 窗口',
+      description: '执行器窗口行为（模型选择与舞台变换在上方 HUB / Gizmo 面板）',
+      pane: 'live2d',
       fields: {
-        'live2d.modelPath': { type: 'string', label: '模型路径 (.model3.json)', default: d.live2d.modelPath },
-        'live2d.modelDir': { type: 'string', label: '模型目录', default: '' },
-        'live2d.window.width': { type: 'number', label: '窗口宽', default: 800 },
-        'live2d.window.height': { type: 'number', label: '窗口高', default: 1000 },
-        'live2d.window.transparent': { type: 'boolean', label: '透明背景', default: true },
-        'live2d.window.alwaysOnTop': { type: 'boolean', label: '置顶', default: true },
-        'live2d.scale': { type: 'number', label: '默认缩放', min: 0.1, max: 10, default: 1 },
-        'live2d.x': { type: 'number', label: '水平位移', default: 0 },
-        'live2d.y': { type: 'number', label: '垂直位移', default: 0 },
+        'live2d.window.width': { type: 'number', label: '窗口宽', min: 200, max: 3840, default: 800 },
+        'live2d.window.height': { type: 'number', label: '窗口高', min: 200, max: 2160, default: 1000 },
+        'live2d.window.transparent': {
+          type: 'boolean',
+          label: '透明背景',
+          default: true,
+        },
+        'live2d.window.alwaysOnTop': { type: 'boolean', label: '窗口置顶', default: true },
       },
     },
     {
-      key: 'audio',
-      title: '音频',
-      description: 'TTS 语音播放与输出设备',
+      key: 'audioCpp',
+      title: '音频执行器',
+      description: '独立音频进程（XAudio2 播放，点歌机/TTS/试听全依赖）',
+      pane: 'audio',
       fields: {
-        'audio.outputDevice': { type: 'string', label: '输出设备', default: '' },
-        'audio.ttsVolume': { type: 'number', label: 'TTS 音量', min: 0, max: 100, default: 80 },
+        'audioCpp.executablePath': { type: 'string', label: '可执行文件路径', default: d.audioCpp.executablePath },
+        'audioCpp.configPath': { type: 'string', label: '配置路径', default: d.audioCpp.configPath },
+        'audioCpp.autoStart': { type: 'boolean', label: '自动启动', default: true },
+        'audioCpp.startHidden': { type: 'boolean', label: '隐藏启动', default: true },
+        'audioCpp.ipcPort': { type: 'number', label: 'IPC 端口', default: 19277 },
+        'audioCpp.startTimeoutMs': { type: 'number', label: '启动超时(ms)', default: 15000 },
+        'audioCpp.reconnectMs': { type: 'number', label: 'IPC 重连间隔(ms)', min: 200, default: 3000 },
       },
     },
     {
-      key: 'cpp',
-      title: '执行器',
-      description: 'C++ 执行后端（Live2D / 播放引擎）',
+      key: 'live2dCpp',
+      title: 'Live2D 执行器',
+      description: '独立渲染进程（Live2D 模型/窗口交互，关闭不影响音频）；启停用仪表盘开关，此处仅高级参数',
+      pane: 'live2d',
       fields: {
-        'cpp.executablePath': { type: 'string', label: '可执行文件路径', default: d.cpp.executablePath },
-        'cpp.configPath': { type: 'string', label: '执行器配置路径', default: d.cpp.configPath },
-        'cpp.autoStart': { type: 'boolean', label: '自动启动', default: false },
-        'cpp.ipcPort': { type: 'number', label: 'IPC 端口', default: 19276 },
-        'cpp.startTimeoutMs': { type: 'number', label: '启动超时(ms)', default: 15000 },
-        'cpp.reconnectMs': { type: 'number', label: 'IPC 重连间隔(ms)', min: 200, default: 3000 },
+        // autoStart 已移除：与仪表盘启停开关重复，后端默认 false（不随服务自启）
+        'live2dCpp.executablePath': { type: 'string', label: '可执行文件路径', default: d.live2dCpp.executablePath },
+        'live2dCpp.configPath': { type: 'string', label: '配置路径', default: d.live2dCpp.configPath },
+        'live2dCpp.startHidden': { type: 'boolean', label: '隐藏启动窗口', default: true },
+        'live2dCpp.ipcPort': { type: 'number', label: 'IPC 端口', default: 19276 },
+        'live2dCpp.startTimeoutMs': { type: 'number', label: '启动超时(ms)', default: 15000 },
+        'live2dCpp.reconnectMs': { type: 'number', label: 'IPC 重连间隔(ms)', min: 200, default: 3000 },
       },
     },
   ]

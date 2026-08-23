@@ -8,6 +8,7 @@ export class BackendClient {
   private connected = false
   private manualClose = false
   private reconnectTimer?: NodeJS.Timeout
+  private connecting: Promise<void> | null = null
   private nextId = 1
   private pending = new Map<number, {
     resolve: (value: any) => void
@@ -26,23 +27,38 @@ export class BackendClient {
 
   async connect(): Promise<void> {
     if (this.connected) return
+    // 并发防护：自动启动流程与重连定时器同时触发时复用同一连接，
+    // 否则会产生双 socket（重复通知、connected 状态错乱）
+    if (this.connecting) return this.connecting
     this.manualClose = false
+    this.connecting = this.doConnect()
+    try {
+      await this.connecting
+    } finally {
+      this.connecting = null
+    }
+  }
 
+  private doConnect(): Promise<void> {
     const url = `ws://${this.host}:${this.wsPort}`
     this.logger.info(`connecting to backend: ${url}`)
+    // 丢弃上一轮残留 socket，避免双连接
+    this.ws?.terminate()
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url)
       this.ws = ws
+      let opened = false
 
       const timeoutTimer = setTimeout(() => {
-        if (!this.connected) {
+        if (!opened) {
           ws.terminate()
           reject(new Error('backend connection timeout'))
         }
       }, this.timeout)
 
       ws.on('open', () => {
+        opened = true
         clearTimeout(timeoutTimer)
         this.connected = true
         if (this.reconnectTimer) {
@@ -66,7 +82,14 @@ export class BackendClient {
 
       ws.on('close', () => {
         this.connected = false
+        // 断线时立即失败所有在途请求，避免各等满一次 10s 超时
+        for (const pending of this.pending.values()) {
+          clearTimeout(pending.timer)
+          pending.reject(new Error('backend disconnected'))
+        }
+        this.pending.clear()
         this.logger.warn('backend disconnected')
+        if (!opened) reject(new Error('backend connection closed before open'))
         this.scheduleReconnect()
       })
 
@@ -91,7 +114,7 @@ export class BackendClient {
       pending.reject(new Error('backend disconnected'))
     }
     this.pending.clear()
-    this.ws?.close()
+    this.ws?.terminate()
     this.ws = undefined
   }
 
@@ -106,7 +129,7 @@ export class BackendClient {
   }
 
   request(method: string, params: any = {}): Promise<any> {
-    if (!this.connected) {
+    if (!this.connected || !this.ws) {
       return Promise.reject(new Error('backend not connected'))
     }
 
@@ -118,12 +141,19 @@ export class BackendClient {
       }, this.timeout)
 
       this.pending.set(id, { resolve, reject, timer })
-      this.ws!.send(JSON.stringify({
-        jsonrpc: '2.0',
-        id,
-        method,
-        params,
-      }))
+      try {
+        this.ws!.send(JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          method,
+          params,
+        }))
+      } catch (error) {
+        // connected 检查与 send 之间 socket 可能刚好关闭
+        this.pending.delete(id)
+        clearTimeout(timer)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
     })
   }
 

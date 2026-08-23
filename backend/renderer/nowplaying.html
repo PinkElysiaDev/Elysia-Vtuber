@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>歌曲信息 · Now Playing</title>
+  <link rel="stylesheet" href="assets/css/theme.css">
+  <style>
+    body {
+      background: transparent !important;
+      background-image: none !important;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: var(--font-sans);
+    }
+    .np-card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 20px;
+      min-width: 380px;
+      max-width: 560px;
+    }
+    .np-cover {
+      width: 64px;
+      height: 64px;
+      border-radius: 4px;
+      object-fit: cover;
+      background: #111;
+      flex-shrink: 0;
+    }
+    .np-info { flex: 1; min-width: 0; }
+    .np-title {
+      font-size: 17px;
+      font-weight: 900;
+      color: var(--th-text-primary, #e8f6ff);
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+    .np-artist {
+      font-size: 12px;
+      color: var(--th-text-muted, #7d8b99);
+      margin-top: 2px;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+    .np-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--th-accent, #00E5FF);
+    }
+    .np-badge {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .1em;
+      padding: 1px 8px;
+      border: 1px solid currentColor;
+      border-radius: 2px;
+    }
+    .np-badge.playing { color: var(--th-success, #2dd4bf); }
+    .np-badge.paused { color: var(--th-warning, #f0b100); }
+    .np-badge.idle { color: var(--th-text-muted, #7d8b99); }
+    .np-disabled {
+      font-size: 12px;
+      color: var(--th-text-muted, #7d8b99);
+      padding: 10px 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="np-card glass-panel">
+    <img class="np-cover" id="npCover" alt="cover"
+         src="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' fill='%23111'/></svg>">
+    <div class="np-info">
+      <div class="np-title" id="npTitle">未播放</div>
+      <div class="np-artist" id="npArtist">等待点歌</div>
+      <div class="np-meta">
+        <span class="np-badge idle" id="npBadge">空闲</span>
+        <span id="npUser"></span>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/js/rpc-client.js"></script>
+  <script>
+    const els = {
+      cover: document.getElementById('npCover'),
+      title: document.getElementById('npTitle'),
+      artist: document.getElementById('npArtist'),
+      badge: document.getElementById('npBadge'),
+      user: document.getElementById('npUser'),
+      card: document.querySelector('.np-card'),
+    };
+
+    function applyNowPlaying(np, running) {
+      if (!np) {
+        els.title.textContent = '未播放';
+        els.artist.textContent = running ? '等待点歌' : '点歌机未启动';
+        els.badge.textContent = running ? '空闲' : '停止';
+        els.badge.className = 'np-badge idle';
+        els.user.textContent = '';
+        return;
+      }
+      els.title.textContent = np.title || '未知歌曲';
+      els.artist.textContent = np.artist || '';
+      els.badge.textContent = np.paused ? '暂停' : '播放中';
+      els.badge.className = 'np-badge ' + (np.paused ? 'paused' : 'playing');
+      els.user.textContent = np.userName && np.userName !== 'idle' ? '点歌：' + np.userName : '';
+      if (np.cover) els.cover.src = np.cover;
+    }
+
+    window.vtuberRPC.on('jukebox.state', (state) => {
+      if (state) applyNowPlaying(state.nowPlaying, state.running);
+    });
+    window.vtuberRPC.on('jukebox.nowPlaying', (np) => applyNowPlaying(np, true));
+
+    window.addEventListener('load', async () => {
+      try {
+        await window.vtuberRPC.whenReady();
+        // windowEnabled=false 时显示未启用占位（数据广播照常，仅提示语义）
+        try {
+          const cfg = await window.vtuberRPC.call('config.get');
+          const enabled = !(cfg && cfg.music && cfg.music.nowPlaying && cfg.music.nowPlaying.windowEnabled === false);
+          if (!enabled) {
+            els.card.innerHTML = '<div class="np-disabled">歌曲信息窗口未启用（music.nowPlaying.windowEnabled）</div>';
+            return;
+          }
+        } catch { /* 配置读取失败不阻断页面 */ }
+        const state = await window.vtuberRPC.call('jukebox.getState');
+        applyNowPlaying(state.nowPlaying, state.running);
+      } catch (e) {
+        els.artist.textContent = '未连接逻辑服务';
+      }
+    });
+  </script>
+</body>
+</html>

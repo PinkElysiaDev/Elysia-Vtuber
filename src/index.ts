@@ -99,8 +99,15 @@ export function apply(ctx: Context, config: Config) {
       if (backend.isConnected()) {
         await backend.request('system.shutdown').catch(() => {})
       }
+      // 等待后端优雅退出（含通知 C++ 执行器退出），超时再兜底 kill，
+      // 避免执行器/后端被硬杀后变成孤儿进程
+      const deadline = Date.now() + 10_000
+      while (Date.now() < deadline && await processManager.isPortOpen()) {
+        await new Promise((resolve) => setTimeout(resolve, 300))
+      }
+      backend.disconnect()
       processManager.stop()
-      return '已请求停止逻辑服务'
+      return '已停止逻辑服务'
     })
 
   ctx.command('vtuber.restart', '重启逻辑服务')
@@ -108,7 +115,9 @@ export function apply(ctx: Context, config: Config) {
       backend.disconnect()
       const ok = await processManager.restart()
       if (ok) await backend.connect().catch(() => {})
-      return ok ? '逻辑服务已重启' : '逻辑服务重启失败'
+      return ok
+        ? '逻辑服务已重启'
+        : '逻辑服务重启失败：端口可能被外部进程占用（非本插件拉起），处理指引见 Koishi 控制台日志'
     })
 
   ctx.command('vtuber.jukebox status', '查看点歌机状态')
@@ -125,10 +134,13 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.command('vtuber.jukebox volume <value:text>', '设置或调整点歌机音量')
     .action(async (_argv, value: string) => {
+      const num = Number(value)
+      // NaN 会被后端 clamp 成 0（静音），必须先挡下
+      if (!Number.isFinite(num)) return `无效的音量值：${value}`
       if (value.startsWith('+') || value.startsWith('-')) {
-        return formatResult(await backend.request('jukebox.adjustVolume', { delta: Number(value) }))
+        return formatResult(await backend.request('jukebox.adjustVolume', { delta: num }))
       }
-      return formatResult(await backend.request('jukebox.setVolume', { volume: Number(value) }))
+      return formatResult(await backend.request('jukebox.setVolume', { volume: num }))
     })
 
   ctx.command('vtuber.jukebox mute', '静音点歌机')

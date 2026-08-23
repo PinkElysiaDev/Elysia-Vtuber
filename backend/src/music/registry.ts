@@ -1,10 +1,11 @@
-import type { Lyrics, MediaInfo, MediaProvider, MediaUrl, MetaData, Quality } from './types'
+import type { Lyrics, MediaInfo, MediaProvider, MediaUrl, MetaData, PlaylistCapable, Quality } from './types'
 import { MusicError } from './types'
 import { kuwo } from './providers/kuwo'
 import { kugou } from './providers/kugou'
 import { migu } from './providers/migu'
 import { bilivideo } from './providers/bilivideo'
-import { netease, qq } from './providers/stub'
+import { netease } from './providers/netease'
+import { qq } from './providers/qq'
 
 const ALIASES: Record<string, string> = {
   'bilibili-video': 'bilivideo',
@@ -68,6 +69,26 @@ export class ProviderRegistry {
 
   async lyric(meta: MetaData): Promise<Lyrics[]> {
     return this.resolve(meta.provider).getMediaLyric(meta)
+  }
+
+  /** 歌单链接/ID → 歌曲列表：遍历实现了 PlaylistCapable 的 provider */
+  async playlist(ref: string): Promise<{ provider: string; items: MediaInfo[] } | null> {
+    for (const provider of this.providers.values()) {
+      const cap = provider as MediaProvider & Partial<PlaylistCapable>
+      if (typeof cap.matchPlaylist !== 'function' || typeof cap.getPlaylist !== 'function') continue
+      const hit = cap.matchPlaylist(ref)
+      if (!hit) continue
+      const items = await cap.getPlaylist(hit.id)
+      return { provider: provider.name, items }
+    }
+    return null
+  }
+
+  /** 支持歌单解析的 provider 名单（前端下拉用） */
+  playlistProviders(): string[] {
+    return [...this.providers.values()]
+      .filter((p) => typeof (p as MediaProvider & Partial<PlaylistCapable>).matchPlaylist === 'function')
+      .map((p) => p.name)
   }
 }
 

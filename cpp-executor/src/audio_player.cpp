@@ -1,19 +1,19 @@
 #include "audio_player.h"
 
-#include "app.h"
 #include "platform.h"
 
 #define INITGUID
 #include <atomic>
+#include <cmath>
 #include <functiondiscoverykeys_devpkey.h>
 #include <mmdeviceapi.h>
-#include <mfapi.h>
 #include <fstream>
 #include <vector>
 #include <winhttp.h>
 
-#pragma comment(lib, "mfplay.lib")
+#pragma comment(lib, "mfreadwrite.lib")
 #pragma comment(lib, "mfplat.lib")
+#pragma comment(lib, "mfuuid.lib")
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "ole32.lib")
@@ -117,44 +117,53 @@ std::string ChannelOf(const nlohmann::json& params) {
   return raw == "tts" ? "tts" : "music";
 }
 
+// SourceReader 输出固定为 16-bit PCM，交给 XAudio2 SourceVoice 直播
+HRESULT SetPcmOutput(IMFSourceReader* reader) {
+  IMFMediaType* type = nullptr;
+  HRESULT hr = MFCreateMediaType(&type);
+  if (SUCCEEDED(hr)) hr = type->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
+  if (SUCCEEDED(hr)) hr = type->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM);
+  if (SUCCEEDED(hr)) hr = type->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16);
+  if (SUCCEEDED(hr)) hr = reader->SetCurrentMediaType(MF_SOURCE_READER_FIRST_AUDIO_STREAM, nullptr, type);
+  if (type) type->Release();
+  if (FAILED(hr)) return hr;
+  return reader->SetStreamSelection(MF_SOURCE_READER_FIRST_AUDIO_STREAM, TRUE);
+}
+
+// 预读缓冲上限（约 24 个 sample ≈ 0.6s+ 的 MP3 帧），超过则让流式线程等待
+constexpr UINT32 kMaxQueuedBuffers = 24;
+
 }  // namespace
 
-class AudioPlayer::Callback : public IMFPMediaPlayerCallback {
+// XAudio2 回调不继承 IUnknown，生命周期由 Slot 管理（voice 销毁后 delete）
+class AudioPlayer::VoiceCallback : public IXAudio2VoiceCallback {
  public:
-  Callback(AudioPlayer* owner, std::string channel) : owner_(owner), channel_(std::move(channel)) {}
+  explicit VoiceCallback(AudioPlayer* owner) : owner_(owner) {}
 
-  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
-    if (!ppv) return E_POINTER;
-    if (riid == IID_IUnknown || riid == __uuidof(IMFPMediaPlayerCallback)) {
-      *ppv = static_cast<IMFPMediaPlayerCallback*>(this);
-      AddRef();
-      return S_OK;
-    }
-    *ppv = nullptr;
-    return E_NOINTERFACE;
+  void STDMETHODCALLTYPE OnVoiceProcessingPassStart(UINT32) override {}
+  void STDMETHODCALLTYPE OnVoiceProcessingPassEnd() override {}
+  void STDMETHODCALLTYPE OnStreamEnd() override {}
+  void STDMETHODCALLTYPE OnBufferStart(void*) override {}
+  void STDMETHODCALLTYPE OnBufferEnd(void* context) override {
+    if (context && owner_) owner_->HandleBufferEnd(static_cast<BufferContext*>(context));
   }
-  ULONG STDMETHODCALLTYPE AddRef() override { return ++ref_; }
-  ULONG STDMETHODCALLTYPE Release() override {
-    const ULONG n = --ref_;
-    if (!n) delete this;
-    return n;
-  }
-  void STDMETHODCALLTYPE OnMediaPlayerEvent(MFP_EVENT_HEADER* header) override {
-    if (!header || !owner_) return;
-    if (header->eEventType == MFP_EVENT_TYPE_PLAYBACK_ENDED) owner_->OnEnded(channel_);
+  void STDMETHODCALLTYPE OnLoopEnd(void*) override {}
+  void STDMETHODCALLTYPE OnVoiceError(void*, HRESULT hr) override {
+    LogLine("[player] voice error hr=" + std::to_string(static_cast<long>(hr)));
   }
 
  private:
   AudioPlayer* owner_ = nullptr;
-  std::string channel_;
-  std::atomic<ULONG> ref_{1};
 };
 
-AudioPlayer::AudioPlayer(App& app) : app_(app) {
+AudioPlayer::AudioPlayer(NotifyFn notify) : notify_(std::move(notify)) {
   MFStartup(MF_VERSION);
+  meterThread_ = std::thread([this]() { MeterLoop(); });
 }
 
 AudioPlayer::~AudioPlayer() {
+  meterStop_.store(true);
+  if (meterThread_.joinable()) meterThread_.join();
   CloseAll();
   MFShutdown();
 }
@@ -168,23 +177,53 @@ const AudioPlayer::Slot& AudioPlayer::SlotByName(const std::string& channel) con
 }
 
 void AudioPlayer::CloseSlot(Slot& slot) {
-  slot.playing = false;
-  slot.paused = false;
-  if (slot.player) {
-    slot.player->Stop();
-    slot.player->Shutdown();
-    slot.player->Release();
-    slot.player = nullptr;
+  slot.generation.fetch_add(1);  // 使旧流式线程 / 回调失效
+  slot.playing.store(false);
+  slot.paused.store(false);
+  if (slot.stream.joinable()) slot.stream.join();
+
+  if (slot.voice) {
+    slot.voice->Stop(0, 0);
+    slot.voice->FlushSourceBuffers();
+    // 留给 XAudio2 回调线程一次触发 OnBufferEnd 的机会，避免释放后回调
+    Sleep(50);
+    slot.voice->DestroyVoice();
+    slot.voice = nullptr;
+  }
+  if (slot.master) {
+    slot.master->DestroyVoice();
+    slot.master = nullptr;
+  }
+  if (slot.xaudio) {
+    slot.xaudio->StopEngine();
+    slot.xaudio->Release();
+    slot.xaudio = nullptr;
   }
   if (slot.callback) {
-    slot.callback->Release();
+    delete slot.callback;
     slot.callback = nullptr;
   }
+  if (slot.reader) {
+    slot.reader->Release();
+    slot.reader = nullptr;
+  }
+
+  // 兜底释放未被回调消费的缓冲（从集合中移除者即拥有释放权）
+  std::set<BufferContext*> leftover;
+  {
+    std::lock_guard lock(slot.buffersMutex);
+    leftover.swap(slot.buffers);
+    slot.meters.clear();
+    slot.totalFrames = 0;
+  }
+  for (auto* ctx : leftover) delete ctx;
+
   if (!slot.tempFile.empty()) {
     DeleteFileW(slot.tempFile.c_str());
     slot.tempFile.clear();
   }
   slot.source.clear();
+  slot.device.clear();
 }
 
 void AudioPlayer::CloseAll() {
@@ -206,12 +245,13 @@ std::wstring AudioPlayer::PrepareSource(Slot& slot, const std::string& url, cons
 }
 
 bool AudioPlayer::ApplyVolume(Slot& slot) {
-  if (!slot.player) return false;
-  return SUCCEEDED(slot.player->SetVolume(static_cast<float>(slot.volume) / 100.0f));
+  if (!slot.voice) return false;
+  return SUCCEEDED(slot.voice->SetVolume(static_cast<float>(slot.volume) / 100.0f));
 }
 
 nlohmann::json AudioPlayer::Play(const nlohmann::json& params) {
   const std::string channel = ChannelOf(params);
+  CoInitializeEx(nullptr, COINIT_MULTITHREADED);  // IPC 线程未必初始化过 COM
   std::lock_guard lock(mutex_);
   Slot& slot = SlotByName(channel);
   CloseSlot(slot);
@@ -241,21 +281,254 @@ nlohmann::json AudioPlayer::Play(const nlohmann::json& params) {
   }
   if (slot.source.empty()) return {{"ok", false}, {"error", "failed to open media"}, {"channel", channel}};
 
-  slot.callback = new Callback(this, channel);
-  const HRESULT hr = MFPCreateMediaPlayer(slot.source.c_str(), TRUE, 0, slot.callback, nullptr, &slot.player);
-  if (FAILED(hr) || !slot.player) {
-    LogLine("[player] MFPCreateMediaPlayer failed");
-    if (slot.callback) {
-      slot.callback->Release();
-      slot.callback = nullptr;
-    }
-    return {{"ok", false}, {"error", "media foundation unavailable"}, {"channel", channel}};
+  const std::wstring deviceId = Utf8ToWide(slot.device);
+  if (FAILED(XAudio2Create(&slot.xaudio, 0, XAUDIO2_DEFAULT_PROCESSOR)) || !slot.xaudio) {
+    CloseSlot(slot);
+    return {{"ok", false}, {"error", "xaudio2 unavailable"}, {"channel", channel}};
   }
+  // 指定输出设备（空 = 系统默认）
+  if (FAILED(slot.xaudio->CreateMasteringVoice(&slot.master, 0, 0, 0,
+                                               deviceId.empty() ? nullptr : deviceId.c_str(), nullptr))
+      || !slot.master) {
+    CloseSlot(slot);
+    return {{"ok", false}, {"error", "failed to open output device"}, {"channel", channel}};
+  }
+  // XAudio2 引擎线程创建后处于停止状态，必须 StartEngine 才会处理任何 voice；
+  // 缺失该调用时全部缓冲只排队不渲染——表现为“播放成功”但完全无声
+  if (FAILED(slot.xaudio->StartEngine())) {
+    CloseSlot(slot);
+    LogLine("[player] StartEngine failed");
+    return {{"ok", false}, {"error", "failed to start audio engine"}, {"channel", channel}};
+  }
+  if (FAILED(MFCreateSourceReaderFromURL(slot.source.c_str(), nullptr, &slot.reader)) || !slot.reader) {
+    CloseSlot(slot);
+    LogLine("[player] MFCreateSourceReaderFromURL failed");
+    return {{"ok", false}, {"error", "failed to open media"}, {"channel", channel}};
+  }
+  if (FAILED(SetPcmOutput(slot.reader))) {
+    CloseSlot(slot);
+    return {{"ok", false}, {"error", "unsupported audio format"}, {"channel", channel}};
+  }
+
+  WAVEFORMATEX* format = nullptr;
+  IMFMediaType* current = nullptr;
+  if (FAILED(slot.reader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_AUDIO_STREAM, &current))
+      || !current
+      || FAILED(MFCreateWaveFormatExFromMFMediaType(current, &format, nullptr))
+      || !format) {
+    if (current) current->Release();
+    CloseSlot(slot);
+    return {{"ok", false}, {"error", "unsupported audio stream"}, {"channel", channel}};
+  }
+  current->Release();
+
+  slot.callback = new VoiceCallback(this);
+  if (FAILED(slot.xaudio->CreateSourceVoice(&slot.voice, format, 0, XAUDIO2_DEFAULT_FREQ_RATIO,
+                                            slot.callback, nullptr, nullptr))
+      || !slot.voice) {
+    CoTaskMemFree(format);
+    CloseSlot(slot);
+    LogLine("[player] CreateSourceVoice failed");
+    return {{"ok", false}, {"error", "failed to create voice"}, {"channel", channel}};
+  }
+  slot.sampleRate = format->nSamplesPerSec ? format->nSamplesPerSec : 44100;
+  slot.channels = format->nChannels ? format->nChannels : 2;
+  CoTaskMemFree(format);
+
+  // SourceVoice 创建后处于停止状态，必须显式 Start 才会渲染；
+  // 缺失该调用会导致一切播放“成功”却完全无声（缓冲只排队、永不消费）
+  if (FAILED(slot.voice->Start(0, 0))) {
+    CloseSlot(slot);
+    LogLine("[player] voice Start failed");
+    return {{"ok", false}, {"error", "failed to start voice"}, {"channel", channel}};
+  }
+
+  slot.playing.store(true);
+  slot.paused.store(false);
+  const uint64_t generation = slot.generation.load();
+  slot.stream = std::thread([this, channel, generation]() { StreamLoop(channel, generation); });
+
   ApplyVolume(slot);
-  slot.playing = true;
-  slot.paused = false;
   LogLine(std::string("[player] play ") + channel + " " + slot.url);
   return {{"ok", true}, {"url", slot.url}, {"title", slot.title}, {"volume", slot.volume}, {"channel", channel}};
+}
+
+void AudioPlayer::StreamLoop(const std::string& channel, uint64_t generation) {
+  CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  Slot& slot = SlotByName(channel);
+  const std::string url = slot.url;
+  const std::string title = slot.title;
+  LogLine("[player] stream enter " + channel);
+
+  while (slot.generation.load() == generation) {
+    DWORD flags = 0;
+    IMFSample* sample = nullptr;
+    const HRESULT hr = slot.reader->ReadSample(MF_SOURCE_READER_FIRST_AUDIO_STREAM, 0, nullptr, &flags, nullptr, &sample);
+    if (FAILED(hr)) {
+      LogLine("[player] ReadSample failed hr=" + std::to_string(static_cast<long>(hr)));
+      break;  // 解码失败中止，循环外兜底广播 ended
+    }
+    const bool eof = (flags & MF_SOURCE_READERF_ENDOFSTREAM) != 0;
+
+    if (sample) {
+      IMFMediaBuffer* mediaBuffer = nullptr;
+      BYTE* data = nullptr;
+      DWORD size = 0;
+      if (SUCCEEDED(sample->ConvertToContiguousBuffer(&mediaBuffer)) && mediaBuffer
+          && SUCCEEDED(mediaBuffer->Lock(&data, nullptr, &size)) && size > 0) {
+        auto* ctx = new BufferContext{};
+        ctx->data.assign(data, data + size);
+        ctx->channel = channel;
+        ctx->generation = generation;
+        ctx->url = url;
+        ctx->title = title;
+        ctx->last = eof;
+        mediaBuffer->Unlock();
+
+        // 提交前计算本块真实电平（RMS/峰值，0..1），随帧区间入队供计量线程对齐取值
+        const size_t frameBytes = 2u * slot.channels;
+        const uint64_t frames = frameBytes ? (ctx->data.size() / frameBytes) : 0;
+        double sumSq = 0.0;
+        int16_t peakAbs = 0;
+        const int16_t* pcm = reinterpret_cast<const int16_t*>(ctx->data.data());
+        const size_t sampleCount = ctx->data.size() / 2;
+        for (size_t i = 0; i < sampleCount; ++i) {
+          const int v = pcm[i];
+          sumSq += static_cast<double>(v) * v;
+          const int a = v < 0 ? -v : v;
+          if (a > peakAbs) peakAbs = static_cast<int16_t>(a);
+        }
+        const float rms = sampleCount ? static_cast<float>(std::sqrt(sumSq / sampleCount) / 32768.0) : 0.0f;
+        const float peak = peakAbs / 32768.0f;
+
+        // 先登记再提交：OnBufferEnd 可能在 Submit 返回前触发
+        {
+          std::lock_guard lock(slot.buffersMutex);
+          slot.buffers.insert(ctx);
+          slot.meters.push_back({slot.totalFrames, slot.totalFrames + frames, rms, peak});
+          slot.totalFrames += frames;
+        }
+        XAUDIO2_BUFFER buffer{};
+        buffer.Flags = eof ? XAUDIO2_END_OF_STREAM : 0;
+        buffer.AudioBytes = static_cast<UINT32>(ctx->data.size());
+        buffer.pAudioData = ctx->data.data();
+        buffer.pContext = ctx;
+        const HRESULT submitHr = slot.voice->SubmitSourceBuffer(&buffer, nullptr);
+        if (FAILED(submitHr)) {
+          LogLine("[player] SubmitSourceBuffer failed hr=" + std::to_string(static_cast<long>(submitHr)));
+          bool removed = false;
+          {
+            std::lock_guard lock(slot.buffersMutex);
+            removed = slot.buffers.erase(ctx) > 0;
+          }
+          if (removed) delete ctx;
+        }
+      }
+      if (mediaBuffer) mediaBuffer->Release();
+      sample->Release();
+    }
+
+    if (eof) {
+      LogLine("[player] stream eof " + channel);
+      break;
+    }
+
+    // 预读节流，防止长音频一次性占满内存
+    XAUDIO2_VOICE_STATE state{};
+    slot.voice->GetState(&state);
+    while (state.BuffersQueued > kMaxQueuedBuffers && slot.generation.load() == generation) {
+      Sleep(50);
+      slot.voice->GetState(&state);
+    }
+  }
+
+  // 等待已提交缓冲全部渲染完成。OnBufferEnd 回调在本环境不触发，
+  // 改用 GetState 轮询：队列清空即播完；CloseSlot 递增 generation 使等待失效
+  while (slot.generation.load() == generation && slot.voice) {
+    XAUDIO2_VOICE_STATE st{};
+    slot.voice->GetState(&st);
+    if (st.BuffersQueued == 0) break;
+    Sleep(50);
+  }
+  if (slot.generation.load() == generation) {
+    // 回调不可靠导致缓冲上下文可能残留，渲染完成后统一回收
+    {
+      std::lock_guard lock(slot.buffersMutex);
+      for (auto* ctx : slot.buffers) delete ctx;
+      slot.buffers.clear();
+    }
+    LogLine("[player] stream done " + channel);
+    NotifyEnded(channel, generation, url, title, slot);
+  }
+  LogLine("[player] stream exit " + channel);
+  CoUninitialize();
+}
+
+void AudioPlayer::MeterLoop() {
+  while (!meterStop_.load()) {
+    Sleep(33);
+    if (meterStop_.load()) break;
+    std::lock_guard lock(mutex_);
+    Slot* slots[2] = {&music_, &tts_};
+    for (Slot* slot : slots) {
+      if (!slot->voice || !slot->playing.load() || slot->paused.load()) continue;
+      XAUDIO2_VOICE_STATE st{};
+      slot->voice->GetState(&st);
+      const uint64_t played = st.SamplesPlayed;
+      const char* channel = (slot == &tts_) ? "tts" : "music";
+      Slot::MeterEntry current{};
+      bool found = false;
+      {
+        std::lock_guard block(slot->buffersMutex);
+        // 回收已完全播过的区间（保留最后一个，尾部电平短暂延续）
+        while (slot->meters.size() > 1 && slot->meters.front().endFrame <= played) {
+          slot->meters.pop_front();
+        }
+        if (!slot->meters.empty()) {
+          const auto& e = slot->meters.front();
+          if (played >= e.startFrame && played < e.endFrame) {
+            current = e;
+            found = true;
+          }
+        }
+      }
+      if (found) {
+        notify_("player.levels", {
+            {"channel", channel},
+            {"rms", current.rms},
+            {"peak", current.peak},
+            {"positionMs", static_cast<double>(played) * 1000.0 / slot->sampleRate},
+        });
+      }
+    }
+  }
+}
+
+void AudioPlayer::HandleBufferEnd(BufferContext* context) {
+  if (!context) return;
+  const std::string channel = context->channel;
+  const uint64_t generation = context->generation;
+  const bool last = context->last;
+  const std::string url = context->url;
+  const std::string title = context->title;
+  {
+    Slot& slot = SlotByName(channel);
+    std::lock_guard lock(slot.buffersMutex);
+    // 所有权随 erase 转移：若已被 CloseSlot 换出（leftover），由 CloseSlot 负责释放，
+    // 此处再 delete 会造成 double-free
+    if (slot.buffers.erase(context) == 0) return;
+  }
+  delete context;
+  if (last) NotifyEnded(channel, generation, url, title, SlotByName(channel));
+}
+
+void AudioPlayer::NotifyEnded(const std::string& channel, uint64_t generation,
+                              const std::string& url, const std::string& title, Slot& slot) {
+  if (slot.generation.load() != generation) return;
+  slot.playing.store(false);
+  slot.paused.store(false);
+  LogLine(std::string("[player] ended ") + channel);
+  notify_("player.ended", {{"url", url}, {"title", title}, {"channel", channel}});
 }
 
 nlohmann::json AudioPlayer::Stop(const nlohmann::json& params) {
@@ -275,21 +548,21 @@ nlohmann::json AudioPlayer::Pause(const nlohmann::json& params) {
   const std::string channel = ChannelOf(params);
   std::lock_guard lock(mutex_);
   Slot& slot = SlotByName(channel);
-  if (!slot.player || !slot.playing) return {{"ok", false}, {"error", "not playing"}, {"channel", channel}};
-  const HRESULT hr = slot.player->Pause();
-  slot.paused = SUCCEEDED(hr);
-  return {{"ok", slot.paused}, {"channel", channel}};
+  if (!slot.voice || !slot.playing.load()) return {{"ok", false}, {"error", "not playing"}, {"channel", channel}};
+  const HRESULT hr = slot.voice->Stop(0, 0);
+  slot.paused.store(SUCCEEDED(hr));
+  return {{"ok", SUCCEEDED(hr)}, {"channel", channel}};
 }
 
 nlohmann::json AudioPlayer::Resume(const nlohmann::json& params) {
   const std::string channel = ChannelOf(params);
   std::lock_guard lock(mutex_);
   Slot& slot = SlotByName(channel);
-  if (!slot.player) return {{"ok", false}, {"error", "not playing"}, {"channel", channel}};
-  const HRESULT hr = slot.player->Play();
+  if (!slot.voice) return {{"ok", false}, {"error", "not playing"}, {"channel", channel}};
+  const HRESULT hr = slot.voice->Start(0, 0);
   if (SUCCEEDED(hr)) {
-    slot.playing = true;
-    slot.paused = false;
+    slot.paused.store(false);
+    slot.playing.store(true);
   }
   return {{"ok", SUCCEEDED(hr)}, {"channel", channel}};
 }
@@ -307,14 +580,22 @@ nlohmann::json AudioPlayer::SetVolume(const nlohmann::json& params) {
 }
 
 nlohmann::json AudioPlayer::SlotStatus(const Slot& slot, const std::string& channel) const {
+  // queued：XAudio2 尚未消费的缓冲数——观察渲染是否真实进行
+  UINT32 queued = 0;
+  if (slot.voice) {
+    XAUDIO2_VOICE_STATE state{};
+    slot.voice->GetState(&state);
+    queued = state.BuffersQueued;
+  }
   return {
       {"channel", channel},
-      {"playing", slot.playing && !slot.paused},
-      {"paused", slot.paused},
+      {"playing", slot.playing.load() && !slot.paused.load()},
+      {"paused", slot.paused.load()},
       {"volume", slot.volume},
       {"url", slot.url},
       {"title", slot.title},
       {"device", slot.device},
+      {"queued", queued},
   };
 }
 
@@ -322,8 +603,8 @@ nlohmann::json AudioPlayer::Status() const {
   std::lock_guard lock(mutex_);
   return {
       {"ok", true},
-      {"playing", music_.playing && !music_.paused},
-      {"paused", music_.paused},
+      {"playing", music_.playing.load() && !music_.paused.load()},
+      {"paused", music_.paused.load()},
       {"volume", music_.volume},
       {"url", music_.url},
       {"title", music_.title},
@@ -385,21 +666,6 @@ nlohmann::json AudioPlayer::Devices() const {
   collection->Release();
   enumerator->Release();
   return {{"ok", true}, {"devices", list}};
-}
-
-void AudioPlayer::OnEnded(const std::string& channel) {
-  std::string endedUrl;
-  std::string endedTitle;
-  {
-    std::lock_guard lock(mutex_);
-    Slot& slot = SlotByName(channel);
-    slot.playing = false;
-    slot.paused = false;
-    endedUrl = slot.url;
-    endedTitle = slot.title;
-  }
-  LogLine(std::string("[player] ended ") + channel);
-  app_.notify("player.ended", {{"url", endedUrl}, {"title", endedTitle}, {"channel", channel}});
 }
 
 }  // namespace vtuber

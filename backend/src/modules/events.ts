@@ -35,7 +35,10 @@ export const KNOWN_EVENT_TYPES = [
 
 export function buildEventModule(deps: EventReceiverDeps): Record<string, RpcHandler> {
   const passesFilter = (event: StandardEvent): boolean => {
-    const { enabledEvents, filters } = deps.getConfig()
+    const cfg = deps.getConfig()
+    // 总开关：一处阻断 历史记录/直接点歌/全部触发器
+    if (cfg.enabled === false) return false
+    const { enabledEvents, filters } = cfg
     const enabled = enabledEvents as Record<string, boolean>
     if (!enabled[event.type]) return false
 
@@ -79,6 +82,50 @@ export function buildEventModule(deps: EventReceiverDeps): Record<string, RpcHan
         }
       }
       return { success: true, accepted, filtered, batchSize: raw.length }
+    },
+
+    'event.simulate': (params) => {
+      const raw = (params as any) ?? {}
+      const type = String(raw.type || 'danmaku')
+      const roomId = String(raw.roomId || '123456')
+      const userName = String(raw.userName || raw.user?.name || '战术观察员')
+      const userUid = String(raw.userUid || raw.user?.uid || '888888')
+
+      const event: StandardEvent = {
+        type,
+        timestamp: Date.now(),
+        roomId,
+        user: {
+          uid: userUid,
+          name: userName,
+          fansMedal: raw.fansMedal ? {
+            name: String(raw.fansMedal.name || '舰长'),
+            level: Number(raw.fansMedal.level || 10),
+          } : undefined,
+          guardLevel: raw.guardLevel ? Number(raw.guardLevel) : undefined,
+        },
+        data: raw.data && typeof raw.data === 'object' ? raw.data : {},
+      }
+
+      if (type === 'danmaku' && !event.data.content) {
+        event.data.content = String(raw.content || raw.text || '主播好可爱！打卡打卡~')
+      } else if (type === 'gift') {
+        if (!event.data.giftName) event.data.giftName = String(raw.giftName || '小心心')
+        if (!event.data.num) event.data.num = Number(raw.num || 10)
+        if (!event.data.totalPrice) event.data.totalPrice = Number(raw.totalPrice || raw.price || 1000)
+      } else if (type === 'superchat') {
+        if (!event.data.message) event.data.message = String(raw.message || raw.content || '主播加油！今日份SC支持！')
+        if (!event.data.price) event.data.price = Number(raw.price || 50)
+      } else if (type === 'guard') {
+        if (!event.data.guardLevel) event.data.guardLevel = Number(raw.guardLevel || 3)
+        if (!event.data.guardName) event.data.guardName = event.data.guardLevel === 1 ? '总督' : event.data.guardLevel === 2 ? '提督' : '舰长'
+      }
+
+      const pass = passesFilter(event)
+      if (pass) {
+        deps.onEvent(event)
+      }
+      return { success: true, simulated: true, filtered: !pass, event }
     },
   }
 }

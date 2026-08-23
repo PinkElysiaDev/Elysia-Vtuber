@@ -42,6 +42,17 @@ export interface MediaProvider {
   getMediaLyric(meta: MetaData): Promise<Lyrics[]>
 }
 
+/** 歌单解析能力（provider 可选实现）：歌单链接/ID → 歌曲列表 */
+export interface PlaylistCapable {
+  /** 识别歌单引用（平台链接或纯 ID）；不匹配返回 null */
+  matchPlaylist(ref: string): { id: string } | null
+  /** 展开歌单为歌曲列表（每源截断至 PLAYLIST_MAX） */
+  getPlaylist(id: string): Promise<MediaInfo[]>
+}
+
+/** 歌单导入的单源上限（防巨型歌单拖垮请求与配置） */
+export const PLAYLIST_MAX = 500
+
 export interface QueueItem {
   id: string
   media: MediaInfo

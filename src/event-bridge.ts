@@ -44,7 +44,8 @@ export class EventBridge {
       ['danmaku', 'bililive/danmaku', (s) => ({ content: s.content ?? s.msg ?? s.message ?? '' })],
       ['gift', 'bililive/gift', (s) => ({
         giftName: s.giftName ?? s.gift_name,
-        num: s.num ?? s.gift_num,
+        // giftNum 是 web 模式连击合并后的总数，优先于单批数量
+        num: s.giftNum ?? s.num ?? s.gift_num,
         price: s.price,
         totalPrice: s.totalPrice ?? s.price,
         coinType: s.coinType,
@@ -53,10 +54,13 @@ export class EventBridge {
       ['superchat', 'bililive/superchat', (s) => ({ price: s.price ?? s.rmb, message: s.message ?? s.content ?? s.msg ?? '' })],
       ['enter', 'bililive/enter', () => ({})],
       ['follow', 'bililive/follow', () => ({})],
-      ['like', 'bililive/like', (s) => ({ count: s.likeCount ?? s.count ?? 1 })],
+      // 开放平台点赞字段为 like_count
+      ['like', 'bililive/like', (s) => ({ count: s.likeCount ?? s.like_count ?? s.count ?? 1 })],
+      // 开放平台数量字段为 guard_num，web 模式为 num
       ['guard', 'bililive/guard', (s) => ({
         guardLevel: s.guardLevel ?? s.guard_level,
-        num: s.num ?? s.gift_num ?? 1,
+        guardName: s.guard_name,
+        num: s.guard_num ?? s.num ?? s.gift_num ?? 1,
         price: s.price,
       })],
       ['liveStart', 'bililive/live-start', (s) => ({ title: s.title, areaName: s.areaName ?? s.area_name })],
@@ -69,8 +73,9 @@ export class EventBridge {
   }
 
   private standard(session: any, type: string, data: Record<string, unknown>): StandardEvent {
-    const uid = String(session.userId ?? session.uid ?? session.open_id ?? '')
-    const name = session.username || session.userName || session.uname || session.user?.name || ''
+    // 开放平台 guard 事件的用户信息嵌在 user_info 里；web 模式用 medalName/medalLevel
+    const uid = String(session.userId ?? session.uid ?? session.user_info?.uid ?? session.open_id ?? '')
+    const name = session.username || session.userName || session.uname || session.user_info?.uname || session.user?.name || ''
     return {
       type,
       timestamp: Date.now(),
@@ -78,10 +83,10 @@ export class EventBridge {
       user: uid ? {
         uid,
         name,
-        face: session.userFace || session.uface || session.user?.avatar,
-        fansMedal: (session.fansMedal || session.fans_medal_name) ? {
-          name: session.fansMedal?.name ?? session.fans_medal_name ?? '',
-          level: session.fansMedal?.level ?? session.fans_medal_level ?? 0,
+        face: session.userFace || session.uface || session.user_info?.uface || session.user?.avatar,
+        fansMedal: (session.fansMedal || session.fans_medal_name || session.medalName) ? {
+          name: session.fansMedal?.name ?? session.fans_medal_name ?? session.medalName ?? '',
+          level: session.fansMedal?.level ?? session.fans_medal_level ?? session.medalLevel ?? 0,
         } : undefined,
         guardLevel: session.guardLevel ?? session.guard_level,
       } : undefined,

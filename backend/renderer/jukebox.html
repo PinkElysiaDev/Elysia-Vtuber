@@ -110,7 +110,12 @@
   <script src="assets/js/audio-visualizer.js"></script>
   <script>
     const spectrum = new AudioSpectrumVisualizer(document.getElementById('spectrumCanvas'), { barCount: 36 });
-    spectrum.startSimulated();
+    // 波形由执行器上报的真实播放电平驱动（music 通道），无数据 250ms 后归零
+    spectrum.startRealtime();
+    window.vtuberRPC.on('player.levels', (lv) => {
+      if (!lv || lv.channel !== 'music') return;
+      spectrum.feedLevel(lv);
+    });
 
     function applyNowPlaying(np, running) {
       const title = document.getElementById('title');

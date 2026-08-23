@@ -12,6 +12,8 @@ export interface SessionDeps {
   getRoomId: () => string
   getHistory: () => StandardEvent[]
   maxRounds?: number
+  /** 工具加载开关（name → false 禁用；缺失 = 启用）。省略时全部加载 */
+  getToolGate?: () => Record<string, boolean>
 }
 
 export interface SessionResult {
@@ -54,7 +56,10 @@ export class LLMSession {
 
   private async loop(messages: ChatMessage[], useTools = true): Promise<SessionResult> {
     const maxRounds = this.deps.maxRounds ?? DEFAULT_MAX_ROUNDS
-    const specs = useTools ? this.deps.tools.list() : []
+    const gate = this.deps.getToolGate?.() ?? {}
+    const specs = useTools
+      ? this.deps.tools.list().filter((t) => gate[t.name] !== false)
+      : []
     const toolCalls: Array<{ name: string; ok: boolean }> = []
     let content = ''
     let finishReason = ''

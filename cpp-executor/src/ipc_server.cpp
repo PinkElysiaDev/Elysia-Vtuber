@@ -1,11 +1,12 @@
 #include "ipc_server.h"
 
-#include "app.h"
 #include "platform.h"
+
+#include <vector>
 
 namespace vtuber {
 
-IpcServer::IpcServer(App& app) : app_(app) {}
+IpcServer::IpcServer(Dispatcher dispatch) : dispatch_(std::move(dispatch)) {}
 
 IpcServer::~IpcServer() {
   stop();
@@ -32,10 +33,7 @@ void IpcServer::start(uint16_t port) {
       server_.set_message_handler([this](ConnectionHdl hdl, WsServer::message_ptr msg) {
         const std::string reply = handlePayload(msg->get_payload());
         if (reply.empty()) return;
-        try {
-          server_.send(hdl, reply, websocketpp::frame::opcode::text);
-        } catch (...) {
-        }
+        sendImpl(hdl, reply);
       });
 
       server_.listen(port);
@@ -52,9 +50,17 @@ void IpcServer::start(uint16_t port) {
 void IpcServer::stop() {
   if (!running_.exchange(false) && !thread_.joinable()) return;
   try {
-    server_.stop_listening();
-    server_.stop();
+    // websocketpp endpoint 非线程安全：stop 必须在 asio io 线程执行，
+    // 从主线程直接调用会与 run() 并发破坏内部状态导致崩溃（退出码 2816 的根因）
+    server_.get_io_service().post([this]() {
+      try {
+        server_.stop_listening();
+        server_.stop();
+      } catch (...) {
+      }
+    });
   } catch (...) {
+    // io_service 不可用（未 init_asio 等），跳过优雅停止
   }
   if (thread_.joinable()) thread_.join();
 }
@@ -65,17 +71,22 @@ void IpcServer::broadcast(const std::string& method, const nlohmann::json& param
       {"method", method},
       {"params", params},
   }.dump();
-  std::lock_guard lock(mutex_);
-  for (const auto& hdl : connections_) {
-    try {
-      server_.send(hdl, payload, websocketpp::frame::opcode::text);
-    } catch (...) {
-    }
+  // 拷贝连接列表后释放 mutex_，避免 send 时长时间持锁；send 仍由 sendMutex_ 串行化
+  std::vector<ConnectionHdl> targets;
+  {
+    std::lock_guard lock(mutex_);
+    for (const auto& hdl : connections_) targets.push_back(hdl);
   }
+  for (const auto& hdl : targets) sendImpl(hdl, payload);
 }
 
-nlohmann::json IpcServer::dispatch(const std::string& method, const nlohmann::json& params) {
-  return app_.handleRpc(method, params);
+void IpcServer::sendImpl(ConnectionHdl hdl, const std::string& payload) {
+  std::lock_guard lock(sendMutex_);
+  try {
+    server_.send(hdl, payload, websocketpp::frame::opcode::text);
+  } catch (...) {
+    // 连接已断开等异常静默处理
+  }
 }
 
 std::string IpcServer::handlePayload(const std::string& raw) {
@@ -98,7 +109,7 @@ std::string IpcServer::handlePayload(const std::string& raw) {
   if (method == "peer.declare") return {};
 
   try {
-    const nlohmann::json result = dispatch(method, params);
+    const nlohmann::json result = dispatch_ ? dispatch_(method, params) : nlohmann::json{{"ok", false}, {"error", "no dispatcher"}};
     if (notify) return {};
     return nlohmann::json{{"jsonrpc", "2.0"}, {"id", message["id"]}, {"result", result}}.dump();
   } catch (const std::exception& ex) {

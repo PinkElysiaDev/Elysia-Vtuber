@@ -16,6 +16,8 @@ export interface ServerConfig {
 }
 
 export interface EventReceiverConfig {
+  /** 事件接收总开关（false 时阻断全部事件：历史/点歌/触发器） */
+  enabled: boolean
   enabledEvents: {
     danmaku: boolean
     gift: boolean
@@ -75,6 +77,10 @@ export interface LLMConfig {
   timeoutMs: number
   /** 系统提示词，支持 {{events}} / {{user}} / {{content}} / {{roomId}} 等变量 */
   systemPrompt: string
+  /** 工具加载开关：name → false 表示不暴露给模型；缺失 = 启用（提示词工坊「工具加载管理」维护） */
+  tools: Record<string, boolean>
+  /** MCP 外部服务器（stdio）：name → 命令配置；工具注册为 mcp__<server>__<tool> */
+  mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }>
 }
 
 export interface TTSConfig {
@@ -89,6 +95,8 @@ export interface TTSConfig {
   pitch: number
   /** 音色克隆参数 */
   voiceId: string
+  /** 临时音频文件保留时长（分钟），0 = 播完立即删除 */
+  tempFileTtlMinutes: number
 }
 
 export interface OutputConfig {
@@ -137,17 +145,17 @@ export interface MusicConfig {
   /** 直接点歌（绕过 LLM） */
   directOrder: {
     enabled: boolean
-    /** 触发词，如 "点歌" */
+    /** 通用触发词，如 "点歌"（使用默认音源） */
     keywords: string[]
+    /** 按渠道触发词，如 { netease: ["点w歌", "网易点歌"] }——命中即固定该渠道检索 */
+    channelCommands: Record<string, string[]>
     /** 点歌是否注册为插件指令（通过插件直接点歌） */
     pluginCommand: boolean
   }
   /** 歌曲信息输出 */
   nowPlaying: {
-    /** 输出模板（nowplaying.txt 文本） */
-    template: string
-    /** 输出文件路径 */
-    filePath: string
+    /** OBS 文本输出：每个条目渲染一个文件；file 为纯文件名，统一写入 data/music_info/ */
+    outputs: Array<{ file: string; template: string }>
     /** 是否开启歌曲信息窗口 */
     windowEnabled: boolean
   }
@@ -157,11 +165,30 @@ export interface MusicConfig {
   sessions: Record<string, string>
 }
 
+/** Live2D 资源注册：哪些表情/换装/动作注册进 LLM 工具、待机播放规律 */
+export interface Live2DAssetRegistration {
+  /** 表情 → 注册项（来自 expressions/ 目录） */
+  expressions: Record<string, { enabled: boolean }>
+  /** 换装 → 注册项（来自 costumes/ 目录，本质也是 Cubism 表情） */
+  costumes: Record<string, { enabled: boolean }>
+  /** 动作引用（声明动作 "组#序号"，命名动作为文件名）→ 注册项 */
+  motions: Record<string, { enabled: boolean }>
+  /** 待机播放 */
+  idle: {
+    motions: string[]
+    mode: 'random' | 'sequential'
+    /** 上一个动作结束后到下一个待机动作的间隔（秒） */
+    intervalSec: number
+  }
+}
+
 export interface Live2DConfig {
   /** 模型路径（.model3.json） */
   modelPath: string
   /** 模型目录（可选，多个模型时） */
   modelDir: string
+  /** 资源注册（LLM 工具门控 + 待机播放规律） */
+  assetRegistration: Live2DAssetRegistration
   /** 窗口 */
   window: {
     width: number
@@ -189,6 +216,8 @@ export interface CppConfig {
   configPath: string
   /** 自动启动 */
   autoStart: boolean
+  /** 由后端拉起时隐藏执行器窗口（Live2D 不显示，音频功能不受影响） */
+  startHidden: boolean
   /** 启动超时 ms */
   startTimeoutMs: number
   /** 本地 IPC 端口 */
@@ -208,7 +237,8 @@ export interface BackendConfig {
   music: MusicConfig
   live2d: Live2DConfig
   audio: AudioConfig
-  cpp: CppConfig
+  audioCpp: CppConfig
+  live2dCpp: CppConfig
 }
 
 // ============ 默认配置 ============
@@ -218,6 +248,8 @@ export function defaultConfig(): BackendConfig {
     roomId: '',
     server: { host: '0.0.0.0', httpPort: 19274, wsPort: 19275 },
     events: {
+      // 默认未启动：仪表盘房间号卡片点击后才开始接收事件
+      enabled: false,
       enabledEvents: {
         danmaku: true,
         gift: true,
@@ -273,6 +305,8 @@ export function defaultConfig(): BackendConfig {
       provider: 'openai',
       baseURL: 'https://api.openai.com/v1',
       apiKey: '',
+      tools: {},
+      mcpServers: {},
       model: 'gpt-4o-mini',
       customHeaders: {},
       temperature: 0.7,
@@ -285,7 +319,7 @@ export function defaultConfig(): BackendConfig {
         '弹幕要短；展示板可以稍长；tts 只放需要朗读的句子。',
         '不要编造未发生的礼物或上舰。',
         '可用 Live2D 工具：live2d_expression / live2d_motion / live2d_transform / live2d_status。',
-        '可用点歌工具：jukebox_search_song / jukebox_add_song / jukebox_skip_song / jukebox_get_queue / jukebox_get_current_song。',
+        '可用点歌工具：jukebox_search_song / jukebox_add_song / jukebox_skip_song / jukebox_get_queue / jukebox_get_current_song。搜索与点歌可带 source 指定渠道：kuwo / kugou / migu / bilivideo / netease / qq（netease、qq 需扫码登录后才可用），不指定则用默认渠道。',
         '当前房间：{{roomId}}',
         '最近事件：\n{{events}}',
       ].join('\n'),
@@ -301,6 +335,7 @@ export function defaultConfig(): BackendConfig {
       volume: 1,
       pitch: 1,
       voiceId: '',
+      tempFileTtlMinutes: 30,
     },
     output: {
       danmaku: { enabled: true, ratePerMinute: 20 },
@@ -317,11 +352,20 @@ export function defaultConfig(): BackendConfig {
       directOrder: {
         enabled: false,
         keywords: ['点歌'],
+        channelCommands: {
+          netease: ['点w歌', '网易点歌'],
+          kuwo: ['点k歌', '酷我点歌'],
+          kugou: ['点kg歌', '酷狗点歌'],
+          migu: ['咪咕点歌'],
+          bilivideo: ['点b歌', 'B站点歌'],
+          qq: ['点q歌', 'QQ点歌'],
+        },
         pluginCommand: false,
       },
       nowPlaying: {
-        template: '🎵 {{title}} - {{artist}} ({{duration}}s)',
-        filePath: 'data/nowplaying.txt',
+        outputs: [
+          { file: 'nowplaying.txt', template: '🎵 {{title}} - {{artist}} ({{duration}})' },
+        ],
         windowEnabled: true,
       },
       outputDevice: '',
@@ -330,16 +374,34 @@ export function defaultConfig(): BackendConfig {
     live2d: {
       modelPath: '../cpp-executor/build/Debug/Resources/Haru/Haru.model3.json',
       modelDir: '',
+      assetRegistration: {
+        expressions: {},
+        costumes: {},
+        motions: {},
+        idle: { motions: [], mode: 'random', intervalSec: 8 },
+      },
       window: { width: 800, height: 1000, transparent: true, alwaysOnTop: true },
       scale: 1,
       x: 0,
       y: 0,
     },
     audio: { outputDevice: '', ttsVolume: 80 },
-    cpp: {
+    // 音频执行器：常驻运行（点歌机/TTS/试听全依赖），无窗口
+    audioCpp: {
+      executablePath: '../cpp-executor/build/Debug/audio_executor.exe',
+      configPath: '../cpp-executor/config/audio-executor.json',
+      autoStart: true,
+      startHidden: true,
+      startTimeoutMs: 15000,
+      ipcPort: 19277,
+      reconnectMs: 3000,
+    },
+    // Live2D 执行器：有窗口，手动开启
+    live2dCpp: {
       executablePath: '../cpp-executor/build/Debug/vtuber_executor.exe',
       configPath: '../cpp-executor/config/executor.json',
       autoStart: false,
+      startHidden: true,
       startTimeoutMs: 15000,
       ipcPort: 19276,
       reconnectMs: 3000,
@@ -367,7 +429,29 @@ export function loadConfig(configPath = 'backend-config.json'): BackendConfig {
   const abs = path.resolve(configPath)
   try {
     const raw = fs.readFileSync(abs, 'utf-8')
-    const user = JSON.parse(raw)
+    const user = JSON.parse(raw) as Record<string, unknown>
+    // 迁移：旧版单 cpp 键 → live2dCpp（音频用新默认值）
+    if (user.cpp && typeof user.cpp === 'object' && !user.live2dCpp) {
+      user.live2dCpp = user.cpp
+    }
+    delete user.cpp
+    // 迁移：旧版 nowPlaying 单模板/单文件 → outputs（须在 deepMerge 前处理用户侧数据，
+    // 否则默认 outputs 与用户旧键并存会跳过迁移）；file 一律规范化为纯文件名（统一落 data/nowplaying/）
+    const userMusic = user.music as { nowPlaying?: Record<string, unknown> } | undefined
+    const userNp = userMusic?.nowPlaying
+    if (userNp) {
+      const outputs = userNp.outputs as Array<{ file: string; template: string }> | undefined
+      if ((!outputs || !outputs.length) && userNp.template && userNp.filePath) {
+        userNp.outputs = [{ file: String(userNp.filePath), template: String(userNp.template) }]
+      }
+      if (Array.isArray(userNp.outputs)) {
+        userNp.outputs = userNp.outputs
+          .filter((o) => o && typeof o.file === 'string' && o.file.trim() !== '')
+          .map((o) => ({ file: path.basename(o.file.replace(/\\/g, '/')).trim(), template: String(o.template ?? '') }))
+      }
+      delete userNp.template
+      delete userNp.filePath
+    }
     return deepMerge(defaults, user)
   } catch (err: any) {
     if (err.code === 'ENOENT') {

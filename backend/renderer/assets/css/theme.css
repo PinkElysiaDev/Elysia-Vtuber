@@ -1,362 +1,938 @@
 /* ==========================================================================
-   Koishi Vtuber WebUI Modern Theme & Design Tokens
-   Supports Light & Dark Theme, Glassmorphism, Neon Glows & Responsive Layout
+   VTuber Professional Management Console - Tactical Precision Theme
+   Design Reference: Seedance-Live (Ark-Cyan Tactical Architecture)
+   Tokens, Typography Hierarchy, ToggleRow, Sliders, Modals & SVG Animations
    ========================================================================== */
 
+@import url('https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,300;0,400;0,600;0,700;0,800;0,900;1,400;1,700&family=JetBrains+Mono:ital,wght@0,300;0,400;0,600;0,700;0,800;1,400&family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap');
+
 :root {
-  /* Color Palette - Dark Mode (Default) */
-  --bg-main: #090d16;
-  --bg-gradient: radial-gradient(circle at 50% 0%, #151d30 0%, #090d16 80%);
-  --bg-card: rgba(18, 26, 42, 0.72);
-  --bg-card-hover: rgba(28, 39, 62, 0.85);
-  --bg-glass: rgba(15, 23, 42, 0.65);
-  --bg-input: rgba(10, 15, 26, 0.7);
+  /* Tactical Precision Dark Theme (Seedance-Live Alignment) */
+  --th-bg-base: #0a0a0a;
+  --th-bg-panel: #111111;
+  --th-bg-elevated: #161616;
+  --th-bg-highlight: #202020;
+  --th-bg-input: #0d0d0d;
 
-  --border-color: rgba(255, 255, 255, 0.08);
-  --border-highlight: rgba(56, 189, 248, 0.3);
-  --border-glow: 0 0 15px rgba(56, 189, 248, 0.2);
+  --th-border: #262626;
+  --th-border-subtle: #1c1c1c;
+  --th-border-bright: #383838;
+  --th-border-accent: rgba(0, 229, 255, 0.4);
 
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --text-inverse: #0f172a;
+  --th-text-primary: #ffffff;
+  --th-text-secondary: #a3a3a3;
+  --th-text-muted: #666666;
+  --th-text-dim: #404040;
 
-  --accent-cyan: #38bdf8;
-  --accent-cyan-glow: rgba(56, 189, 248, 0.4);
-  --accent-purple: #a855f7;
-  --accent-purple-glow: rgba(168, 85, 247, 0.4);
-  --accent-emerald: #10b981;
-  --accent-emerald-glow: rgba(16, 185, 129, 0.4);
-  --accent-amber: #f59e0b;
-  --accent-amber-glow: rgba(245, 158, 11, 0.4);
-  --accent-rose: #f43f5e;
-  --accent-rose-glow: rgba(244, 63, 94, 0.4);
+  /* Tactical Accents */
+  --th-accent: #00E5FF;
+  --th-accent-dim: #00B8D4;
+  --th-accent-glow: rgba(0, 229, 255, 0.35);
+  --th-accent-soft: rgba(0, 229, 255, 0.08);
 
-  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.25);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
-  --shadow-glow: 0 0 25px rgba(56, 189, 248, 0.15);
+  --th-success: #2dd4bf;
+  --th-success-dim: #0f766e;
+  --th-success-glow: rgba(45, 212, 191, 0.35);
 
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
-  --radius-full: 9999px;
+  --th-warning: #facc15;
+  --th-warning-dim: #854d0e;
+  --th-warning-glow: rgba(250, 204, 21, 0.35);
 
-  --blur-card: blur(16px);
-  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --th-error: #ef4444;
+  --th-error-dim: #7f1d1d;
+  --th-error-glow: rgba(239, 68, 68, 0.35);
+
+  /* Extended Tactical Theme Tokens */
+
+  /* Chamfer Geometry */
+  --chamfer-md: 8px;
+
+  /* Gradients */
+  --grad-cyan-glow: linear-gradient(135deg, rgba(0, 229, 255, 0.2) 0%, rgba(0, 229, 255, 0) 100%);
+
+  /* Tactical Font Scale */
+  --font-sans: 'Exo 2', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Noto Sans SC', monospace;
+
+  --shadow-panel: 0 4px 20px rgba(0, 0, 0, 0.6);
 }
 
-/* Light Theme Overrides */
-[data-theme="light"] {
-  --bg-main: #f1f5f9;
-  --bg-gradient: radial-gradient(circle at 50% 0%, #ffffff 0%, #e2e8f0 85%);
-  --bg-card: rgba(255, 255, 255, 0.82);
-  --bg-card-hover: rgba(255, 255, 255, 0.95);
-  --bg-glass: rgba(241, 245, 249, 0.75);
-  --bg-input: rgba(248, 250, 252, 0.9);
-
-  --border-color: rgba(0, 0, 0, 0.08);
-  --border-highlight: rgba(14, 165, 233, 0.4);
-  --border-glow: 0 0 15px rgba(14, 165, 233, 0.15);
-
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
-  --text-inverse: #ffffff;
-
-  --accent-cyan: #0284c7;
-  --accent-cyan-glow: rgba(2, 132, 199, 0.25);
-  --accent-purple: #9333ea;
-  --accent-purple-glow: rgba(147, 51, 234, 0.25);
-  --accent-emerald: #059669;
-  --accent-emerald-glow: rgba(5, 150, 105, 0.25);
-  --accent-amber: #d97706;
-  --accent-amber-glow: rgba(217, 119, 6, 0.25);
-  --accent-rose: #e11d48;
-  --accent-rose-glow: rgba(225, 29, 72, 0.25);
-
-  --shadow-sm: 0 4px 12px rgba(15, 23, 42, 0.06);
-  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
-  --shadow-glow: 0 0 25px rgba(14, 165, 233, 0.1);
-}
-
-/* Base Styles */
+/* Base Reset & Typography */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   user-select: none;
 }
 
-body {
+/* 日志区/文本输入允许选中复制 */
+.log-stream-box, .log-line, .log-line span, textarea, input[type="text"], .json-editor {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+html, body {
   width: 100vw;
   height: 100vh;
-  background: var(--bg-main);
-  background-image: var(--bg-gradient);
-  color: var(--text-primary);
+  background-color: var(--th-bg-base);
+  color: var(--th-text-primary);
+  font-family: var(--font-sans);
   overflow: hidden;
-  transition: background var(--transition-normal), color var(--transition-normal);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Custom Scrollbar */
+/* Background Texture / Subtle Grid Mesh */
+.tactical-mesh-bg {
+  background-image:
+    radial-gradient(circle at 50% 0%, #161a22 0%, #0a0a0a 75%),
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 100% 100%, 32px 32px, 32px 32px;
+}
+
+/* Custom Tactical Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--th-bg-base);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.3);
-  border-radius: 4px;
+  background: #2a2a2a;
+  border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.5);
+  background: var(--th-accent-dim);
 }
 
-/* Glassmorphism Card Base */
-.glass-panel {
-  background: var(--bg-card);
-  backdrop-filter: var(--blur-card);
-  -webkit-backdrop-filter: var(--blur-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  transition: all var(--transition-normal);
+/* Tactical Panel Shell */
+.tactical-panel {
+  background: var(--th-bg-panel);
+  border: 1px solid var(--th-border);
+  box-shadow: var(--shadow-panel);
+  position: relative;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.glass-panel:hover {
-  border-color: var(--border-highlight);
-  box-shadow: var(--shadow-lg), var(--shadow-glow);
+.tactical-panel-elevated {
+  background: var(--th-bg-elevated);
+  border: 1px solid var(--th-border);
 }
 
-/* Button UI Components */
-.btn {
+/* Corner HUD Decorative Brackets (Disabled) */
+.hud-corner-brackets {
+  position: relative;
+}
+.hud-corner-brackets::before,
+.hud-corner-brackets::after {
+  display: none;
+}
+
+/* Chamfered Box & Clip Paths */
+.clip-chamfer {
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--chamfer-md)) 0,
+    100% var(--chamfer-md),
+    100% 100%,
+    var(--chamfer-md) 100%,
+    0 calc(100% - var(--chamfer-md))
+  );
+}
+
+/* Section Header Bar */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--th-bg-elevated);
+  border-bottom: 1px solid var(--th-border);
+}
+
+.section-title {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--th-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-title-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--th-accent);
+  background: var(--th-accent-soft);
+  padding: 1px 6px;
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  border-radius: 2px;
+}
+
+/* Tactical Buttons */
+.tac-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 10px 18px;
-  border-radius: var(--radius-md);
-  font-size: 14px;
-  font-weight: 500;
+  gap: 6px;
+  white-space: nowrap; /* 按钮标签一律单行：窄容器下被压缩时不得换行 */
+  padding: 7px 14px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   cursor: pointer;
-  border: 1px solid var(--border-color);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  backdrop-filter: blur(8px);
-  transition: all var(--transition-fast);
+  border: 1px solid var(--th-border);
+  background: var(--th-bg-elevated);
+  color: var(--th-text-secondary);
+  border-radius: 2px;
+  transition: all 0.15s ease;
   outline: none;
 }
 
-.btn:hover {
-  background: var(--bg-card-hover);
-  border-color: var(--accent-cyan);
-  color: var(--accent-cyan);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 14px var(--accent-cyan-glow);
+.tac-btn:hover {
+  background: var(--th-bg-highlight);
+  border-color: var(--th-accent);
+  color: var(--th-text-primary);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
 }
 
-.btn:active {
-  transform: translateY(0);
+.tac-btn:active {
+  transform: translateY(1px);
 }
 
-.btn-primary {
-  background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-purple) 100%);
-  border: none;
+.tac-btn-primary {
+  background: var(--th-accent);
+  border-color: var(--th-accent);
+  color: #000000;
+  font-weight: 800;
+}
+.tac-btn-primary:hover {
+  background: #33ebff;
+  color: #000000;
+  box-shadow: 0 0 16px var(--th-accent-glow);
+}
+
+.tac-btn-success {
+  background: rgba(45, 212, 191, 0.15);
+  border-color: var(--th-success);
+  color: var(--th-success);
+}
+.tac-btn-success:hover {
+  background: var(--th-success);
+  color: #000000;
+  box-shadow: 0 0 14px var(--th-success-glow);
+}
+
+.tac-btn-danger {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--th-error);
+}
+.tac-btn-danger:hover {
+  background: var(--th-error);
   color: #ffffff;
-  font-weight: 600;
-  box-shadow: 0 4px 16px var(--accent-cyan-glow);
+  box-shadow: 0 0 14px var(--th-error-glow);
 }
 
-.btn-primary:hover {
-  color: #ffffff;
-  opacity: 0.92;
-  box-shadow: 0 6px 20px var(--accent-purple-glow);
+.tac-btn-sm {
+  padding: 4px 8px;
+  font-size: 11px;
 }
 
-.btn-success {
-  background: linear-gradient(135deg, var(--accent-emerald) 0%, #059669 100%);
-  border: none;
-  color: #ffffff;
-  font-weight: 600;
-  box-shadow: 0 4px 16px var(--accent-emerald-glow);
+.tac-btn-xs {
+  padding: 2px 6px;
+  font-size: 10px;
 }
 
-.btn-success:hover {
-  color: #ffffff;
-  opacity: 0.92;
+/* Tactical Indicator Dot (LED) */
+.tac-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #404040;
+  flex-shrink: 0;
+  display: inline-block;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.btn-danger {
-  background: rgba(244, 63, 94, 0.16);
-  border-color: rgba(244, 63, 94, 0.35);
-  color: var(--accent-rose);
-}
-
-.btn-danger:hover {
-  color: #fff;
-  background: var(--accent-rose);
-  border-color: transparent;
-}
-
-.btn-sm {
-  padding: 6px 12px;
-  font-size: 12px;
-  border-radius: var(--radius-sm);
-}
-
-.btn-icon {
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  border-radius: var(--radius-full);
-}
-
-/* Badge Component */
-.badge {
+/* Tactical Toggle / Enable Button */
+.tac-toggle-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 10px;
-  border-radius: var(--radius-full);
-  font-size: 12px;
-  font-weight: 600;
-  background: rgba(56, 189, 248, 0.12);
-  color: var(--accent-cyan);
-  border: 1px solid rgba(56, 189, 248, 0.25);
-}
-
-.badge-success {
-  background: rgba(16, 185, 129, 0.12);
-  color: var(--accent-emerald);
-  border-color: rgba(16, 185, 129, 0.25);
-}
-
-.badge-warning {
-  background: rgba(245, 158, 11, 0.12);
-  color: var(--accent-amber);
-  border-color: rgba(245, 158, 11, 0.25);
-}
-
-.badge-danger {
-  background: rgba(244, 63, 94, 0.12);
-  color: var(--accent-rose);
-  border-color: rgba(244, 63, 94, 0.25);
-}
-
-/* Theme Switcher Button */
-.theme-toggle {
-  position: relative;
-  width: 52px;
-  height: 28px;
-  border-radius: 14px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border-radius: 2px;
   cursor: pointer;
+  user-select: none;
+  border: 1px solid var(--th-border);
+  background: var(--th-bg-elevated);
+  color: var(--th-text-muted);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tac-toggle-btn:hover {
+  background: var(--th-bg-highlight);
+  border-color: var(--th-border-bright);
+  color: var(--th-text-secondary);
+}
+
+.tac-toggle-btn.active,
+.tac-toggle-btn:has(input:checked) {
+  background: var(--th-accent-soft);
+  border-color: var(--th-accent);
+  color: var(--th-accent);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+}
+
+.tac-toggle-btn.active .tac-dot,
+.tac-toggle-btn:has(input:checked) .tac-dot {
+  background: var(--th-accent);
+  box-shadow: 0 0 6px var(--th-accent);
+}
+
+.tac-toggle-btn-success.active,
+.tac-toggle-btn-success:has(input:checked) {
+  background: rgba(45, 212, 191, 0.12);
+  border-color: var(--th-success);
+  color: var(--th-success);
+  box-shadow: 0 0 8px rgba(45, 212, 191, 0.2);
+}
+
+.tac-toggle-btn-success.active .tac-dot,
+.tac-toggle-btn-success:has(input:checked) .tac-dot {
+  background: var(--th-success);
+  box-shadow: 0 0 6px var(--th-success);
+}
+
+.tac-toggle-btn-xs {
+  padding: 1px 5px;
+  font-size: 10px;
+}
+
+/* Tactical Compact Switch (Header / Card Total Toggles) */
+.tac-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--th-text-muted);
+  transition: color 0.15s ease;
+}
+
+.tac-switch:hover .tac-switch-label {
+  color: var(--th-text-secondary);
+}
+
+.tac-switch-track {
+  width: 26px;
+  height: 14px;
+  background: #181818;
+  border: 1px solid var(--th-border);
+  border-radius: 2px;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.tac-switch-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 10px;
+  height: 10px;
+  background: #4a4a4a;
+  border-radius: 1px;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.tac-switch:has(input:checked) .tac-switch-track {
+  background: rgba(0, 229, 255, 0.15);
+  border-color: var(--th-accent);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.25);
+}
+
+.tac-switch:has(input:checked) .tac-switch-thumb {
+  transform: translateX(12px);
+  background: var(--th-accent);
+  box-shadow: 0 0 6px var(--th-accent);
+}
+
+.tac-switch:has(input:checked) .tac-switch-label {
+  color: var(--th-accent);
+  font-weight: 800;
+}
+
+/* Tactical Input Fields */
+.tac-input, .tac-select, .tac-textarea {
+  width: 100%;
+  background: var(--th-bg-input);
+  border: 1px solid var(--th-border);
+  color: var(--th-text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 7px 10px;
+  border-radius: 2px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.tac-input:focus, .tac-select:focus, .tac-textarea:focus {
+  border-color: var(--th-accent);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.25);
+}
+
+.tac-select option {
+  background: var(--th-bg-panel);
+  color: var(--th-text-primary);
+}
+
+/* ToggleRow Component (Exact Seedance-Live Port) */
+.toggle-row {
   display: flex;
   align-items: center;
-  padding: 3px;
-  transition: all var(--transition-normal);
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--th-bg-elevated);
+  border: 1px solid var(--th-border-subtle);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.theme-toggle .toggle-knob {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
-  transition: transform var(--transition-normal);
+.toggle-row:hover {
+  background: var(--th-bg-highlight);
+  border-color: var(--th-border);
+}
+
+.toggle-row-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle-row-title {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--th-text-primary);
+}
+
+.toggle-row-desc {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--th-text-muted);
+}
+
+.toggle-row-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.toggle-row-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.toggle-row-status.active {
+  color: var(--th-accent);
+}
+
+.toggle-row-status.inactive {
+  color: var(--th-text-dim);
+}
+
+.toggle-row-led {
+  width: 5px;
+  height: 16px;
+  background: var(--th-accent);
+  border-radius: 1px;
+  transition: opacity 0.2s ease, box-shadow 0.2s ease;
+}
+
+.toggle-row-led.active {
+  opacity: 1;
+  box-shadow: 0 0 10px var(--th-accent-glow);
+}
+
+.toggle-row-led.inactive {
+  opacity: 0.15;
+  box-shadow: none;
+}
+
+/* Precision Param Slider (ParamPanel Style) */
+.param-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.param-slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.param-slider-label {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--th-text-muted);
+}
+
+.param-slider-val {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--th-accent);
+}
+
+/* Precision Sliders */
+.tac-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: #222222;
+  border-radius: 1px;
+  outline: none;
+  cursor: pointer;
+}
+
+.tac-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 16px;
+  background: var(--th-accent);
+  border-radius: 1px;
+  cursor: ew-resize;
+  box-shadow: 0 0 8px var(--th-accent-glow);
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.tac-slider::-webkit-slider-thumb:hover {
+  background: #ffffff;
+  transform: scaleY(1.2);
+}
+
+/* Chip / Variable Tag */
+.var-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  background: #181818;
+  border: 1px solid var(--th-border);
+  color: var(--th-accent);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.var-chip:hover {
+  background: var(--th-accent-soft);
+  border-color: var(--th-accent);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+/* Tactical Badges */
+.tac-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: 2px;
+  border: 1px solid;
+}
+
+.tac-badge-accent {
+  background: rgba(0, 229, 255, 0.1);
+  color: var(--th-accent);
+  border-color: rgba(0, 229, 255, 0.3);
+}
+
+.tac-badge-success {
+  background: rgba(45, 212, 191, 0.1);
+  color: var(--th-success);
+  border-color: rgba(45, 212, 191, 0.3);
+}
+
+.tac-badge-warning {
+  background: rgba(250, 204, 21, 0.1);
+  color: var(--th-warning);
+  border-color: rgba(250, 204, 21, 0.3);
+}
+
+.tac-badge-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--th-error);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* Modals & Backdrop */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.modal-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-box {
+  background: var(--th-bg-panel);
+  border: 1px solid var(--th-border);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(0, 229, 255, 0.15);
+  border-radius: 2px;
+  width: 90%;
+  max-width: 520px;
+  transform: scale(0.95);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.modal-backdrop.open .modal-box {
+  transform: scale(1);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--th-bg-elevated);
+  border-bottom: 1px solid var(--th-border);
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--th-bg-elevated);
+  border-top: 1px solid var(--th-border);
+}
+
+/* Side Drawer Component */
+
+/* Tooltip Line Styling */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a1a1a;
   color: #fff;
+  border: 1px solid var(--th-accent);
+  padding: 4px 8px;
+  font-family: var(--font-mono);
   font-size: 11px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+  border-radius: 2px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  pointer-events: none;
+  z-index: 100;
 }
 
-[data-theme="light"] .theme-toggle .toggle-knob {
-  transform: translateX(24px);
-  background: linear-gradient(135deg, var(--accent-amber), #f97316);
+/* Animations & Keyframes */
+
+@keyframes discRotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
-/* Form & Input controls */
-.input-control {
-  width: 100%;
-  padding: 10px 14px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: 14px;
-  outline: none;
-  transition: all var(--transition-fast);
+@keyframes eqJump1 { 0%, 100% { height: 4px; } 50% { height: 16px; } }
+@keyframes eqJump2 { 0%, 100% { height: 14px; } 50% { height: 6px; } }
+@keyframes eqJump3 { 0%, 100% { height: 8px; } 50% { height: 18px; } }
+
+.deck-disc-anim {
+  animation: discRotate 8s linear infinite;
 }
 
-.input-control:focus {
-  border-color: var(--accent-cyan);
-  box-shadow: 0 0 12px var(--accent-cyan-glow);
+.deck-disc-anim.paused {
+  animation-play-state: paused;
 }
 
-/* Range Slider */
-input[type="range"] {
-  -webkit-appearance: none;
-  width: 100%;
-  height: 6px;
-  background: var(--bg-input);
-  border-radius: 3px;
-  outline: none;
-}
-
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 16px;
+.eq-bar-group {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
   height: 16px;
-  border-radius: 50%;
-  background: var(--accent-cyan);
+}
+
+.eq-bar {
+  width: 3px;
+  background: var(--th-accent);
+  border-radius: 1px;
+  box-shadow: 0 0 4px var(--th-accent-glow);
+}
+
+.eq-bar-1 { animation: eqJump1 0.8s ease-in-out infinite; }
+.eq-bar-2 { animation: eqJump2 0.9s ease-in-out infinite; }
+.eq-bar-3 { animation: eqJump3 0.7s ease-in-out infinite; }
+
+
+/* Seedance 习语：主按钮左侧方块灯，hover 拉高（短条变长条） */
+.tac-btn.btn-lamp {
+  position: relative;
+  padding-left: 22px;
+}
+.tac-btn.btn-lamp::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 5px;
+  height: 6px;
+  transform: translateY(-50%);
+  background: var(--th-accent);
+  transition: height 0.3s cubic-bezier(0.25, 1, 0.2, 1);
+}
+.tac-btn.btn-lamp:hover::before { height: 14px; }
+.tac-btn.tac-btn-primary.btn-lamp::before { background: var(--th-on-accent, #0a0a0a); }
+.tac-btn.tac-btn-primary.btn-lamp:hover::before { background: var(--th-on-accent, #0a0a0a); }
+
+/* 测试按钮内左侧律动竖条：两态共用同一套关键帧（高度带一致，切换仅相位差），
+   状态差异 = 组级缩放/明暗（带过渡）+ 常态略微放慢节奏（仅改 duration，动画不重启） */
+.eq-bar-group.eq-in-btn {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 12px;
+  margin-right: 6px;
+  vertical-align: middle;
+  transform-origin: bottom center;
+  opacity: 0.7;
+  transition: transform 0.4s cubic-bezier(0.25, 1, 0.2, 1), opacity 0.4s ease;
+}
+.eq-bar-group.eq-in-btn.idle { transform: scaleY(0.78); }
+.eq-bar-group.eq-in-btn.idle .eq-bar-1 { animation-duration: 1.7s; }
+.eq-bar-group.eq-in-btn.idle .eq-bar-2 { animation-duration: 1.9s; }
+.eq-bar-group.eq-in-btn.idle .eq-bar-3 { animation-duration: 1.6s; }
+.eq-bar-group.eq-in-btn.active { transform: scaleY(1); opacity: 1; }
+.eq-bar-group.eq-in-btn .eq-bar {
+  width: 4px; /* 整数像素：避免 3.5px 亚像素渲染造成的"不等宽"观感 */
+  background: currentColor;
+  box-shadow: none;
+}
+.eq-bar-group.eq-in-btn .eq-bar-1 { animation: eqBtn1 1.15s ease-in-out infinite; }
+.eq-bar-group.eq-in-btn .eq-bar-2 { animation: eqBtn2 1.3s ease-in-out infinite; }
+.eq-bar-group.eq-in-btn .eq-bar-3 { animation: eqBtn3 1.05s ease-in-out infinite; }
+@keyframes eqBtn1 { 0%, 100% { height: 4px; } 50% { height: 10px; } }
+@keyframes eqBtn2 { 0%, 100% { height: 9px; } 50% { height: 5px; } }
+@keyframes eqBtn3 { 0%, 100% { height: 5px; } 50% { height: 10px; } }
+
+/* ==========================================================================
+   Settings Hub & Form Engine Extensions (Tactical Precision)
+   ========================================================================== */
+
+/* Config Category Grouping */
+
+/* Form Grid & Fields */
+.cfg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cfg-field.span-2 {
+  grid-column: 1 / -1;
+}
+
+.cfg-field-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--th-text-secondary);
+}
+
+.cfg-field-desc {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  color: var(--th-text-muted);
+  line-height: 1.4;
+}
+
+/* Object / Matrix Box */
+.cfg-object-box {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--th-border);
+  background: var(--th-bg-input);
+  border-radius: 2px;
+}
+
+/* 紧凑变体：全布尔开关矩阵（事件接收页） */
+.cfg-object-box.compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+}
+.cfg-object-box.compact .tac-toggle-btn {
+  padding: 2px 7px;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  margin-top: 0 !important;
+  align-self: auto !important;
+}
+
+/* Trigger Visual Rule Editor */
+.trigger-list-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.trigger-rule-card {
+  padding: 14px;
+  border: 1px solid var(--th-border);
+  background: var(--th-bg-input);
+  border-radius: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+}
+
+.trigger-rule-card:hover {
+  border-color: var(--th-border-bright);
+}
+
+.trigger-rule-card.disabled {
+  opacity: 0.65;
+  border-style: dashed;
+}
+
+.trigger-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--th-border-subtle);
+}
+
+.trigger-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.trigger-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  background: var(--th-bg-elevated);
+  border: 1px solid var(--th-border);
+  color: var(--th-text-muted);
+  border-radius: 2px;
   cursor: pointer;
-  box-shadow: 0 0 10px var(--accent-cyan-glow);
-  transition: transform var(--transition-fast);
+  user-select: none;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.25);
+.trigger-chip:hover {
+  background: var(--th-bg-highlight);
+  border-color: var(--th-border-bright);
+  color: var(--th-text-secondary);
 }
 
-/* Keyframe Animations */
-@keyframes pulseGlow {
-  0%, 100% { opacity: 0.4; transform: scale(1); }
-  50% { opacity: 0.8; transform: scale(1.05); }
+.trigger-chip:has(input:checked) {
+  background: var(--th-accent-soft);
+  border-color: var(--th-accent);
+  color: var(--th-accent);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
 }
 
-@keyframes spinRecord {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.trigger-chip .tac-dot {
+  width: 4px;
+  height: 4px;
 }
 
-@keyframes floatCard {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-6px); }
+.trigger-chip:has(input:checked) .tac-dot {
+  background: var(--th-accent);
+  box-shadow: 0 0 5px var(--th-accent);
 }
 
-@keyframes slideInUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+.trigger-action-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 40px;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
 }
 
-@keyframes slideInRight {
-  from { opacity: 0; transform: translateX(30px); }
-  to { opacity: 1; transform: translateX(0); }
-}
+/* Toast Message */
 
-.animate-spin {
-  animation: spinRecord 20s linear infinite;
-}
-
-.animate-pulse {
-  animation: pulseGlow 3s ease-in-out infinite;
-}
-
-.animate-float {
-  animation: floatCard 4s ease-in-out infinite;
+/* 触发器卡片折叠：默认隐藏 body，.expanded 展开 */
+.trigger-rule-card .trigger-card-body { display: none; }
+.trigger-rule-card.expanded .trigger-card-body { display: block; }
+.tri-chevron {
+  font-size: 11px;
+  color: var(--th-accent);
+  width: 12px;
+  flex-shrink: 0;
 }

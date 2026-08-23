@@ -39,8 +39,7 @@ cmake --build build --config Debug
 # 运行 build/Debug/vtuber_executor.exe
 ```
 
-- WebUI：http://127.0.0.1:19274
-- 配置页：http://127.0.0.1:19274/settings.html
+- WebUI：http://127.0.0.1:19274（控制台与配置面板均在首页）
 - 插件默认连 `ws://localhost:19275`
 
 ## 端口
