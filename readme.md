@@ -65,3 +65,17 @@ cmake --build build --config Debug
 ## Koishi 插件
 
 启用 `adapter-bililive` 和 `vtuber`。插件配置只有房间、事件开关、逻辑服务地址，见 [config.example.yml](config.example.yml)。LLM / TTS / 点歌都在逻辑服务里改。
+
+## 发布 Release
+
+在本机（Windows，已配好 Cubism SDK 与 VS 构建环境）执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1              # 用 package.json 版本
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Version 0.3.0
+```
+
+脚本会构建三件套（插件 lib/ → tgz、后端 dist/、C++ 双执行器 Release），打包到 `release/` 并生成 RELEASE_NOTES.md；装了 `gh` CLI 会自动打 tag 并创建 GitHub Release（走 7890 代理），没装则打印手动上传指引。产物：`vtuber-executors-win64-<v>.zip`、`vtuber-backend-<v>.zip`、`koishi-plugin-vtuber-<v>.tgz`。
+
+> CI（cpp-backend.yml）只做开源参考实现的编译检查；正式执行器因依赖 Cubism SDK 与 Windows API 走本地发布。
+
