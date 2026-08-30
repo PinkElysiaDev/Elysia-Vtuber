@@ -239,6 +239,37 @@
     .toast-warn { border-left-color: var(--th-warning); }
     @keyframes toastIn { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
     @keyframes toastOut { to { opacity: 0; transform: translateX(12px); } }
+    /* 播放中台传输按钮：SVG 图标按 viewBox 精确居中（替代 Unicode 字形，根治光学不对齐） */
+    .deck-btn {
+      width: 42px; height: 42px; border: none; border-radius: 50%; background: transparent;
+      color: rgba(255,255,255,0.78); display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: color .15s, transform .12s, background .2s;
+    }
+    .deck-btn svg { width: 22px; height: 22px; fill: currentColor; display: block; }
+    .deck-btn:hover { color: #fff; transform: scale(1.08); }
+    .deck-btn:active { transform: scale(0.95); }
+    .deck-btn-main {
+      width: 56px; height: 56px; background: #fff; color: #1c1c1e;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.38);
+    }
+    .deck-btn-main:hover { color: #1c1c1e; transform: scale(1.05); }
+    .deck-btn-main:active { transform: scale(0.97); }
+    .deck-btn-main svg { width: 24px; height: 24px; }
+    .deck-btn-main .deck-ico-play { transform: translateX(1.5px); }
+    /* 黑胶旋转（vinyl 定位含 translateY(-50%)，关键帧必须保留） */
+    @keyframes jbVinylSpin {
+      from { transform: translateY(-50%) rotate(0deg); }
+      to { transform: translateY(-50%) rotate(360deg); }
+    }
+    /* 小卡片转盘装饰：虚线圆环缓慢旋转 */
+    @keyframes deckDiscSpin { to { transform: rotate(360deg); } }
+    .deck-disc-anim { animation: deckDiscSpin 8s linear infinite; border-style: dashed; }
+    /* 音量滑块 thumb（appearance:none 后必须显式定义，否则圆点不可见） */
+    #jbDeckVolume::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 12px; height: 12px; border-radius: 50%; background: #fff;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.45); cursor: pointer;
+    }
     /* 点歌指令芯片：点击编辑、✕ 删除 */
     .order-chip {
       display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px;
@@ -461,9 +492,9 @@
         <svg><use href="#icon-globe"/></svg>
         <span data-i18n="nav.server">SERVICE NETWORK</span>
       </div>
-      <div class="nav-item" data-cfg-section="llm" onclick="selectConfigFromNav('llm')">
-        <svg><use href="#icon-spark"/></svg>
-        <span data-i18n="nav.llm">LLM ENGINE</span>
+      <div class="nav-item" data-cfg-section="music" onclick="selectConfigFromNav('music')">
+        <svg><use href="#icon-disc"/></svg>
+        <span data-i18n="nav.music">JUKEBOX CONFIG</span>
       </div>
       <div class="nav-item" data-cfg-section="tts" onclick="selectConfigFromNav('tts')">
         <svg><use href="#icon-wave"/></svg>
@@ -476,6 +507,10 @@
       <div class="nav-item" onclick="switchPane('mcp')">
         <svg><use href="#icon-cube"/></svg>
         <span data-i18n="nav.mcp">MCP CLIENT</span>
+      </div>
+      <div class="nav-item" onclick="switchPane('llmmodels')">
+        <svg><use href="#icon-spark"/></svg>
+        <span data-i18n="nav.llmmodels">LLM MODELS</span>
       </div>
     </nav>
 
@@ -504,7 +539,7 @@
           <div class="tactical-panel hud-corner-brackets" style="padding:16px;">
             <div class="param-slider-label" data-i18n="dash.totalEvents">TOTAL INGESTED EVENTS</div>
             <div style="font-size:24px; font-weight:900; color:var(--th-success); margin-top:4px;" id="statEventCount">0</div>
-            <div style="font-size:11px; color:var(--th-text-muted);" data-i18n="dash.eventBusDesc">EVENT BUS QUEUE PASS</div>
+            <div style="font-size:11px; color:var(--th-text-muted);" id="statEventLast" data-i18n="dash.eventBusDesc">EVENT BUS QUEUE PASS</div>
           </div>
           <div class="tactical-panel hud-corner-brackets" style="padding:16px;">
             <div class="param-slider-label" data-i18n="dash.activeTriggers">ACTIVE TRIGGER RULES</div>
@@ -591,7 +626,7 @@
                 <label class="param-slider-label" data-i18n="l2d.scanDir">SCAN DIRECTORY</label>
                 <div style="display:flex; gap:8px; margin-top:6px;">
                   <input id="l2dScanDirInput" class="tac-input" placeholder="Resources/Models...">
-                  <button class="tac-btn tac-btn-primary" style="flex-shrink:0;" onclick="scanModels()" data-i18n="l2d.scanDir">SCAN</button>
+                  <button class="tac-btn tac-btn-primary" style="flex-shrink:0;" onclick="scanModels()" data-i18n="l2d.scanBtn">SCAN</button>
                 </div>
               </div>
 
@@ -925,32 +960,67 @@
           </div>
         </div>
 
-        <!-- 点歌指令：直接点歌总开关 + 通用/渠道触发词芯片编辑（弹幕触发，绕过 LLM） -->
+        <!-- 播放中台：Apple Music 风格 -->
+        <div id="jbDeckCard" style="margin-top:14px; background:linear-gradient(145deg, rgba(28,28,30,0.95), rgba(44,44,46,0.9)); border-radius:16px; padding:28px 32px; display:flex; gap:28px; align-items:flex-start; flex-wrap:wrap; box-shadow:0 8px 32px rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.06); position:relative; overflow:hidden;">
+          <!-- 封面背景：放大出血 + 毛玻璃 + 暗色滤镜（无封面时淡出回退到渐变底） -->
+          <img id="jbDeckBg" src="" alt="" style="position:absolute; left:-48px; top:-48px; width:calc(100% + 96px); height:calc(100% + 96px); object-fit:cover; filter:blur(34px) brightness(0.42) saturate(1.15); opacity:0; transition:opacity .6s; z-index:0;">
+          <div style="position:absolute; inset:0; background:linear-gradient(150deg, rgba(22,22,26,0.42), rgba(8,8,10,0.62)); z-index:0;"></div>
+          <div style="flex-shrink:0; width:224px; height:224px; border-radius:14px; overflow:hidden; box-shadow:0 12px 32px rgba(0,0,0,0.5); background:#1a1a1a; display:flex; align-items:center; justify-content:center; position:relative; z-index:1;">
+            <img id="jbDeckCover" src="" alt="" style="width:100%; height:100%; object-fit:cover; display:none;">
+            <span id="jbDeckCoverFallback" style="font-size:64px; opacity:0.4;">🎵</span>
+            <div id="jbDeckVinyl" style="position:absolute; right:-36px; top:50%; transform:translateY(-50%); width:52px; height:52px; border-radius:50%; border:2px solid rgba(255,255,255,0.15); background:radial-gradient(circle, #333 20%, #111 80%); display:flex; align-items:center; justify-content:center; font-size:10px; color:rgba(255,255,255,0.3);">DJ</div>
+          </div>
+          <div style="flex:1; min-width:280px; display:flex; flex-direction:column; gap:16px; position:relative; z-index:1;">
+            <div>
+              <div id="jbDeckTitle" style="font-size:20px; font-weight:700; color:#fff; letter-spacing:-0.3px; line-height:1.3;">未在播放</div>
+              <div id="jbDeckArtist" style="font-size:14px; color:rgba(255,255,255,0.55); margin-top:4px; letter-spacing:0.1px;">—</div>
+            </div>
+            <!-- 进度条（极细） -->
+            <div>
+              <div id="jbDeckTrack" style="height:5px; border-radius:2.5px; background:rgba(255,255,255,0.15); position:relative; cursor:pointer;">
+                <div id="jbDeckFill" style="position:absolute; left:0; top:0; bottom:0; width:0%; background:#fa586a; border-radius:2.5px;"></div>
+              </div>
+              <div style="display:flex; justify-content:space-between; margin-top:5px;">
+                <span id="jbDeckElapsed" style="font-size:11px; color:rgba(255,255,255,0.4); font-variant-numeric:tabular-nums;">0:00</span>
+                <span id="jbDeckDuration" style="font-size:11px; color:rgba(255,255,255,0.4); font-variant-numeric:tabular-nums;">-0:00</span>
+              </div>
+            </div>
+            <!-- 运输按钮 + 音量 -->
+            <div style="display:flex; align-items:center; gap:18px;">
+              <button id="jbDeckPrev" class="deck-btn" title="上一首" aria-label="上一首">
+                <svg viewBox="0 0 24 24"><path d="M6 5h2.2v14H6zM19.4 5v14L10 12z"/></svg>
+              </button>
+              <button id="jbDeckPlayPause" class="deck-btn deck-btn-main" title="播放/暂停" aria-label="播放/暂停"></button>
+              <button id="jbDeckSkip" class="deck-btn" title="下一首" aria-label="下一首">
+                <svg viewBox="0 0 24 24"><path d="M15.8 5H18v14h-2.2zM4.6 5v14l9.4-7z"/></svg>
+              </button>
+              <div style="flex:1; display:flex; align-items:center; gap:8px; min-width:120px; margin-left:12px;">
+                <svg viewBox="0 0 24 24" style="width:15px; height:15px; fill:rgba(255,255,255,0.4); flex-shrink:0;"><path d="M3 9v6h4l5 4V5L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/></svg>
+                <input type="range" id="jbDeckVolume" min="0" max="100" value="80" style="flex:1; -webkit-appearance:none; height:4px; border-radius:2px; background:rgba(255,255,255,0.15); outline:none; cursor:pointer;">
+                <span id="jbDeckVolumeVal" style="font-size:10px; color:rgba(255,255,255,0.4); width:24px; text-align:right; font-variant-numeric:tabular-nums;">80</span>
+              </div>
+            </div>
+            <!-- 歌词 -->
+            <div id="jbDeckLyric" style="min-height:52px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; text-align:center;">
+              <span style="font-size:12px; color:rgba(255,255,255,0.3);">暂无歌词</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 播放记录：点歌/播放时间、状态、点歌人、快捷播放/加队列 -->
         <div class="tactical-panel hud-corner-brackets" style="margin-top:14px;">
           <div class="section-header">
             <span class="section-title">
-              <svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-terminal"/></svg>
-              <span data-i18n="jb.orderCommands">ORDER COMMANDS CONFIG</span>
+              <svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-layers"/></svg>
+              <span data-i18n="jb.historyTitle">PLAY HISTORY</span>
             </span>
+            <span class="section-title-badge" id="jbHistoryCount">0</span>
           </div>
-          <div style="padding:16px; display:flex; flex-direction:column; gap:12px;">
-            <div class="toggle-row" style="cursor:pointer;" id="directOrderCard" onclick="onDirectOrderCardClick()">
-              <div class="toggle-row-left">
-                <div class="toggle-row-title" data-i18n="jb.directOrder">直接点歌</div>
-                <div class="toggle-row-desc" data-i18n="jb.directOrderDesc">弹幕以触发词开头即点歌（绕过 LLM）</div>
-              </div>
-              <div class="toggle-row-right">
-                <span id="directOrderStatus" class="toggle-row-status inactive">[ DISABLED ]</span>
-                <div id="directOrderLed" class="toggle-row-led inactive"></div>
-              </div>
+          <div style="padding:12px 16px;">
+            <div style="display:grid; grid-template-columns: 90px 90px 1.4fr 1fr 56px 64px 1fr 72px; gap:6px; padding:4px 8px; font-size:10px; color:var(--th-text-muted); font-family:var(--font-mono); border-bottom:1px solid var(--th-border-subtle);">
+              <span data-i18n="jb.hReqAt">点歌时间</span><span data-i18n="jb.hPlayAt">播放时间</span><span data-i18n="jb.hTitle">歌名</span><span data-i18n="jb.hArtist">歌手</span><span data-i18n="jb.hDur">时长</span><span data-i18n="jb.hStatus">状态</span><span data-i18n="jb.hUser">点歌人</span><span></span>
             </div>
-            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-              <span class="param-slider-label" style="margin:0; flex-shrink:0;" data-i18n="jb.genericKeywords">GENERIC TRIGGER KEYWORDS</span>
-              <span id="orderKeywords" style="display:flex; flex-wrap:wrap; gap:6px; flex:1; align-items:center;"></span>
-            </div>
-            <div id="orderChannels" style="display:flex; flex-direction:column; gap:8px;"></div>
-            <div id="orderAddChannel" style="display:flex; gap:8px; align-items:center;"></div>
-            <div style="font-size:11px; color:var(--th-text-muted);">弹幕以触发词开头即点歌（余下文字为歌名）；渠道触发词固定用对应音源检索，与通用触发词按最长前缀匹配。</div>
+            <div id="jbHistoryList" style="max-height:260px; overflow-y:auto; display:flex; flex-direction:column;"></div>
           </div>
         </div>
 
@@ -965,70 +1035,38 @@
               <span id="idleCountBadge" class="tac-badge tac-badge-accent" style="font-size:11px;">0 首</span>
             </div>
           </div>
-          <div style="padding:16px; display:flex; flex-direction:column; gap:12px;">
-            <div class="toggle-row" style="cursor:pointer;" id="idleLoopCard" onclick="onIdleLoopCardClick()">
-              <div class="toggle-row-left">
-                <div class="toggle-row-title" data-i18n="jb.idleLoop">歌单循环</div>
-                <div class="toggle-row-desc" data-i18n="jb.idleLoopDesc">队列为空时按空闲歌单循环播放</div>
+          <div style="padding:16px; display:flex; gap:16px; flex-wrap:wrap;">
+            <!-- 左栏：原配置布局 -->
+            <div style="flex:1; min-width:260px; display:flex; flex-direction:column; gap:12px;">
+              <div class="toggle-row" style="cursor:pointer;" id="idleLoopCard" onclick="onIdleLoopCardClick()">
+                <div class="toggle-row-left">
+                  <div class="toggle-row-title" data-i18n="jb.idleLoop">歌单循环</div>
+                  <div class="toggle-row-desc" data-i18n="jb.idleLoopDesc">队列为空时按空闲歌单循环播放</div>
+                </div>
+                <div class="toggle-row-right">
+                  <span id="idleLoopStatus" class="toggle-row-status inactive">[ DISABLED ]</span>
+                  <div id="idleLoopLed" class="toggle-row-led inactive"></div>
+                </div>
               </div>
-              <div class="toggle-row-right">
-                <span id="idleLoopStatus" class="toggle-row-status inactive">[ DISABLED ]</span>
-                <div id="idleLoopLed" class="toggle-row-led inactive"></div>
+              <div style="display:flex; gap:8px;">
+                <input id="idlePlaylistRef" class="tac-input" style="flex:1;" placeholder="粘贴歌单链接或 ID（网易云 / QQ 音乐 / 酷狗）" onkeydown="if(event.key==='Enter') resolveIdlePlaylist()">
+                <button class="tac-btn tac-btn-primary btn-lamp" style="flex-shrink:0;" onclick="resolveIdlePlaylist()" data-i18n="jb.resolvePlaylist">RESOLVE PLAYLIST</button>
               </div>
+              <div id="idlePlaylistPreview" style="display:none;" class="tactical-panel-elevated"></div>
+              <div class="param-slider-label" data-i18n="jb.idleGroups">PLAYLISTS</div>
+              <div id="idlePlaylistList" style="display:flex; flex-direction:column; gap:4px; max-height:280px; overflow-y:auto; font-size:12px;"></div>
             </div>
-            <div style="display:flex; gap:8px;">
-              <input id="idlePlaylistRef" class="tac-input" style="flex:1;" placeholder="粘贴歌单链接或 ID（网易云 / QQ 音乐 / 酷狗）" onkeydown="if(event.key==='Enter') resolveIdlePlaylist()">
-              <button class="tac-btn tac-btn-primary btn-lamp" style="flex-shrink:0;" onclick="resolveIdlePlaylist()" data-i18n="jb.resolvePlaylist">RESOLVE PLAYLIST</button>
+            <!-- 右栏：选中歌单的歌曲列表 -->
+            <div style="flex:1.4; min-width:300px; display:flex; flex-direction:column; gap:8px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="param-slider-label" style="margin:0;" id="jbIdleDetailTitle">—</span>
+                <span class="tac-badge tac-badge-accent" style="font-size:10px;" id="jbIdleDetailCount">0</span>
+              </div>
+              <div id="jbIdleDetailList" style="display:flex; flex-direction:column; gap:4px; max-height:340px; overflow-y:auto; font-size:12px;"></div>
             </div>
-            <div id="idlePlaylistPreview" style="display:none;" class="tactical-panel-elevated"></div>
-            <div style="display:flex; gap:8px;">
-              <select id="idleManualSource" class="tac-select" style="width:140px;">
-                <option value="kuwo">Kuwo (酷我)</option>
-                <option value="kugou">Kugou (酷狗)</option>
-                <option value="migu">Migu (咪咕)</option>
-                <option value="bilivideo">Bilibili</option>
-                <option value="netease">Netease</option>
-                <option value="qq">QQ Music</option>
-              </select>
-              <input id="idleManualRef" class="tac-input" style="flex:1;" placeholder="单曲 ID / 关键词（手动加入空闲歌单）" onkeydown="if(event.key==='Enter') addIdleManual()">
-              <button class="tac-btn" style="flex-shrink:0;" onclick="addIdleManual()">+ ADD</button>
-            </div>
-            <div id="idlePlaylistList" style="display:flex; flex-direction:column; gap:4px; max-height:260px; overflow-y:auto; font-size:12px;"></div>
           </div>
         </div>
 
-        <!-- 点歌机设置（schema 驱动，即改即存） -->
-        <div class="tactical-panel hud-corner-brackets" style="margin-top:14px;">
-          <div class="section-header">
-            <span class="section-title">
-              <svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-settings"/></svg>
-              <span data-i18n="jb.settingsTitle">JUKEBOX ENGINE SETTINGS</span>
-            </span>
-            <span class="section-title-badge" data-i18n="l2d.autoSaveOn">AUTO-SAVE ENABLED</span>
-          </div>
-          <div id="jukeboxSettingsFields" style="padding:16px; display:grid; grid-template-columns:1fr 1fr; gap:14px;"></div>
-        </div>
-
-        <!-- 歌曲信息文本输出：多文件 + 变量模板（OBS 读取这些文件） -->
-        <div class="tactical-panel hud-corner-brackets" style="margin-top:14px;">
-          <div class="section-header">
-            <span class="section-title">
-              <svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-layers"/></svg>
-              <span data-i18n="jb.nowPlayingOutputs">NOW PLAYING FILE OUTPUTS</span>
-            </span>
-            <div style="display:flex; gap:10px; align-items:center;">
-              <span style="font-size:11px; color:var(--th-text-muted); font-family:var(--font-mono);" data-i18n="jb.outputDir">Output Dir: backend/data/music_info/</span>
-              <button class="tac-btn tac-btn-sm tac-btn-primary btn-lamp" onclick="addNowPlayingOutput()" data-i18n="jb.addOutput">ADD OUTPUT FILE</button>
-            </div>
-          </div>
-          <div style="padding:16px; display:flex; flex-direction:column; gap:12px;">
-            <div id="npOutputsList" style="display:flex; flex-direction:column; gap:12px;"></div>
-            <div class="tactical-panel-elevated" style="padding:10px 12px;">
-              <div class="param-slider-label" style="margin-bottom:6px;" data-i18n="jb.availableVars">AVAILABLE VARIABLES (CLICK TO INSERT)</div>
-              <div id="npVarChips" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
-            </div>
-          </div>
-        </div>
       </section>
 
       <!-- ================= 5. EVENT SANDBOX ================= -->
@@ -1050,6 +1088,9 @@
               </button>
               <button class="tac-btn tac-btn-sm" onclick="simulateEvent('danmaku', '点歌 晴天')">
                 <span class="tac-badge tac-badge-accent" style="padding:0 4px;">ORDER</span> <span data-i18n="sb.orderBtn">点歌 晴天</span>
+              </button>
+              <button class="tac-btn tac-btn-sm" onclick="simulateEvent('danmaku', '切歌')">
+                <span class="tac-badge tac-badge-accent" style="padding:0 4px;">SKIP</span> <span data-i18n="sb.skipBtn">切歌</span>
               </button>
               <button class="tac-btn tac-btn-sm" onclick="simulateEvent('gift', '辣条', 10, 1000)">
                 <span class="tac-badge tac-badge-warning" style="padding:0 4px;">GIFT</span> <span data-i18n="sb.giftBtn">10根辣条 (1000金瓜子)</span>
@@ -1175,9 +1216,91 @@
             <div class="tactical-panel-elevated" style="padding:12px; display:flex; flex-direction:column; gap:8px;">
               <div class="param-slider-label" data-i18n="mcp.addTitle">ADD MCP SERVER</div>
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                <input id="mcpAddName" class="tac-input" style="width:140px;" placeholder="名称（如 weather）">
-                <input id="mcpAddCommand" class="tac-input" style="flex:1; min-width:220px;" placeholder="命令（如 node mcp-server.js）">
-                <button class="tac-btn tac-btn-primary btn-lamp" style="flex-shrink:0;" onclick="void addMcpServer()" data-i18n="mcp.addBtn">CONNECT</button>
+                <input id="mcpAddName" class="tac-input" style="width:150px;" placeholder="名称（如 weather）" data-i18n-holder="mcp.nameHolder">
+                <select id="mcpAddTransport" class="tac-input" style="width:130px;" onchange="onMcpTransportChange()">
+                  <option value="stdio" data-i18n="mcp.transportStdio">stdio 命令</option>
+                  <option value="http" data-i18n="mcp.transportHttp">HTTP URL</option>
+                </select>
+                <button class="tac-btn tac-btn-primary btn-lamp" style="flex-shrink:0;" onclick="void addMcpServer()" data-i18n="mcp.addBtn">ATTACH</button>
+                <button id="mcpAiParseBtn" class="tac-btn tac-btn-sm" style="flex-shrink:0; color:var(--th-accent); display:none;" onclick="openMcpAiModal()" data-i18n="mcp.aiParse">✨ AI 解析文档</button>
+              </div>
+              <!-- stdio 块：命令 + 环境变量 -->
+              <div id="mcpStdioBlock" style="display:flex; flex-direction:column; gap:6px;">
+                <input id="mcpAddCommand" class="tac-input" placeholder="命令（如 npx -y mcp-server-weather）" data-i18n-holder="mcp.commandHolder">
+                <div class="param-slider-label" style="margin-top:2px;" data-i18n="mcp.envTitle">环境变量（可选）</div>
+                <div id="mcpEnvRows" style="display:flex; flex-direction:column; gap:6px;"></div>
+                <div><button class="tac-btn tac-btn-sm" onclick="addMcpKvRow('mcpEnvRows')" data-i18n="mcp.envAdd">+ 环境变量</button></div>
+              </div>
+              <!-- HTTP 块：URL + 请求头 + AI 解析 -->
+              <div id="mcpHttpBlock" style="display:none; flex-direction:column; gap:6px;">
+                <input id="mcpAddUrl" class="tac-input" placeholder="URL（如 http://127.0.0.1:3000/mcp）" data-i18n-holder="mcp.urlHolder">
+                <div class="param-slider-label" style="margin-top:2px;" data-i18n="mcp.headersTitle">HTTP 请求头（鉴权等，可选）</div>
+                <div id="mcpHeaderRows" style="display:flex; flex-direction:column; gap:6px;"></div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button class="tac-btn tac-btn-sm" onclick="addMcpKvRow('mcpHeaderRows')" data-i18n="mcp.headerAdd">+ 请求头</button>
+                  <button class="tac-btn tac-btn-sm" onclick="addMcpKvRow('mcpHeaderRows', 'Authorization', 'Bearer ')" data-i18n="mcp.headerBearer">+ Bearer Token</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 7.5 LLM MODELS ================= -->
+      <section id="pane-llmmodels" class="workspace-pane">
+        <div class="tactical-panel hud-corner-brackets">
+          <div class="section-header">
+            <span class="section-title">
+              <svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-spark"/></svg>
+              <span data-i18n="lm.title">LLM MODELS · REGISTRY</span>
+            </span>
+            <div style="display:flex; gap:8px;">
+              <button class="tac-btn tac-btn-sm" onclick="void renderLlmModels()" data-i18n="lm.refresh">刷新</button>
+            </div>
+          </div>
+          <div style="padding:16px; display:flex; flex-direction:column; gap:12px;">
+            <div style="font-size:11px; color:var(--th-text-muted);" data-i18n="lm.hint">
+              填写端点与参数保存即注册模型；★ 设为当前使用后该模型即生效。生成参数留空回退默认（温度 0.7 / Top P 1 / 超时 60s）。
+            </div>
+            <div id="lmModelList" style="display:flex; flex-direction:column; gap:8px;"></div>
+            <!-- 编辑器 -->
+            <div class="tactical-panel-elevated" style="padding:12px; display:flex; flex-direction:column; gap:8px;">
+              <div class="param-slider-label" data-i18n="lm.editorTitle">EDIT MODEL PROFILE</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <input id="lmName" class="tac-input" style="flex:1; min-width:200px;" placeholder="模型名（即请求的模型 ID，如 gpt-4o-mini）" data-i18n-holder="lm.nameHolder">
+                <select id="lmProvider" class="tac-input" style="width:190px;">
+                  <option value="openai">OpenAI Chat Completions</option>
+                  <option value="anthropic">Anthropic Messages</option>
+                  <option value="gemini">Google Gemini</option>
+                  <option value="responses">OpenAI Responses</option>
+                </select>
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <input id="lmBaseUrl" class="tac-input" style="flex:1; min-width:220px;" placeholder="Base URL（如 https://api.openai.com/v1）" data-i18n-holder="lm.baseUrlHolder">
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <input id="lmApiKey" type="password" class="tac-input" style="flex:1; min-width:220px;" placeholder="API Key" data-i18n-holder="lm.apiKeyHolder">
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <input id="lmMaxTokens" type="number" min="1" class="tac-input no-spin" style="width:130px;" placeholder="最大输出 2000" data-i18n-holder="lm.maxTokensHolder">
+                <input id="lmContext" type="number" min="1" class="tac-input no-spin" style="width:150px;" placeholder="上下文窗口 200000" data-i18n-holder="lm.contextHolder">
+                <input id="lmTemperature" type="number" min="0" max="2" step="0.1" class="tac-input no-spin" style="width:110px;" placeholder="温度 0.7" data-i18n-holder="lm.tempHolder">
+                <input id="lmTopP" type="number" min="0" max="1" step="0.05" class="tac-input no-spin" style="width:100px;" placeholder="Top P 1" data-i18n-holder="lm.topPHolder">
+                <input id="lmTimeout" type="number" min="1000" class="tac-input no-spin" style="width:120px;" placeholder="超时ms 60000" data-i18n-holder="lm.timeoutHolder">
+                <label class="tac-toggle-btn" style="padding:5px 12px; font-size:12px;" title="开启思考">
+                  <input type="checkbox" id="lmThinkEnabled" hidden>
+                  <span class="tac-dot"></span>
+                  <span data-i18n="lm.thinking">开启思考</span>
+                </label>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <div class="param-slider-label" style="margin:0;" data-i18n="lm.headersTitle">自定义请求头</div>
+                <button class="tac-btn tac-btn-sm" onclick="addLlmKvRow()" data-i18n="lm.headerAdd">+ 请求头</button>
+              </div>
+              <div id="lmHeaderRows" style="display:flex; flex-direction:column; gap:6px;"></div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="tac-btn tac-btn-primary btn-lamp" onclick="void saveLlmModel()" data-i18n="lm.save">保存</button>
+                <button class="tac-btn tac-btn-sm" onclick="clearLlmEditor()" data-i18n="lm.clear">清空</button>
               </div>
             </div>
           </div>
@@ -1257,6 +1380,74 @@
     </div>
   </div>
 
+  <!-- Modal: MCP AI 文档解析（MCP 面板「✨ AI 解析文档」打开） -->
+  <div id="mcpAiModal" class="modal-backdrop">
+    <div class="modal-box hud-corner-brackets" style="max-width:640px;">
+      <div class="modal-header">
+        <span class="section-title">
+          <svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-cube"/></svg>
+          <span data-i18n="mcp.aiTitle">AI 解析 MCP 文档</span>
+        </span>
+        <button class="tac-btn tac-btn-sm" onclick="closeMcpAiModal()">CLOSE</button>
+      </div>
+      <div class="modal-body" style="display:flex; flex-direction:column; gap:10px;">
+        <div style="font-size:11px; color:var(--th-text-muted); line-height:1.6;" data-i18n="mcp.aiNotice">
+          AI 生成内容仅供参考：请核对后再连接；密钥请自行填入，AI 不会（也不应）替你填写真实密钥。截图模式需要 vision 模型。
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button id="mcpAiTabText" class="tac-btn tac-btn-sm tac-btn-primary" onclick="switchMcpAiTab('text')" data-i18n="mcp.aiTabText">粘贴文本</button>
+          <button id="mcpAiTabImage" class="tac-btn tac-btn-sm" onclick="switchMcpAiTab('image')" data-i18n="mcp.aiTabImage">上传截图</button>
+          <button id="mcpAiTabUrl" class="tac-btn tac-btn-sm" onclick="switchMcpAiTab('url')" data-i18n="mcp.aiTabUrl">文档 URL</button>
+        </div>
+        <div id="mcpAiInputText" style="display:flex; flex-direction:column; gap:6px;">
+          <textarea id="mcpAiText" class="tac-textarea" rows="8" placeholder="粘贴 MCP 服务器的文档 / README 内容…" data-i18n-holder="mcp.aiTextHolder" style="font-size:12px;"></textarea>
+        </div>
+        <div id="mcpAiInputImage" style="display:none; flex-direction:column; gap:6px;">
+          <input id="mcpAiImages" type="file" accept="image/*" multiple class="tac-input" style="font-size:12px;">
+        </div>
+        <div id="mcpAiInputUrl" style="display:none; flex-direction:column; gap:6px;">
+          <input id="mcpAiUrl" class="tac-input" placeholder="https://example.com/mcp-server#readme" data-i18n-holder="mcp.aiUrlHolder">
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="tac-btn tac-btn-primary btn-lamp" onclick="void runMcpAiParse()" data-i18n="mcp.aiRun">立即解析</button>
+          <span id="mcpAiStatus" style="font-size:11px; color:var(--th-text-muted);"></span>
+        </div>
+        <div class="param-slider-label" data-i18n="mcp.aiPreview">解析结果预览</div>
+        <div id="mcpAiResult" style="font-family:var(--font-mono); font-size:12px; border:1px solid var(--th-border-subtle); background:var(--th-bg-input); padding:10px; border-radius:2px; white-space:pre-wrap; word-break:break-all; min-height:60px; max-height:220px; overflow-y:auto;" data-i18n="mcp.aiEmpty">尚未解析</div>
+        <div>
+          <button class="tac-btn tac-btn-sm tac-btn-primary" onclick="applyMcpAiSuggestion()" data-i18n="mcp.aiApply">应用到表单</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: {{queue}} 待播列表元素格式编辑（变量面板 queue 芯片「✎」打开） -->
+  <div id="queueTplModal" class="modal-backdrop">
+    <div class="modal-box hud-corner-brackets" style="max-width:620px;">
+      <div class="modal-header">
+        <span class="section-title">
+          <svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-terminal"/></svg>
+          <span data-i18n="cfg.queueTplTitle">编辑 {{queue}} 元素格式</span>
+        </span>
+        <button class="tac-btn tac-btn-sm" onclick="closeQueueTplModal()">CLOSE</button>
+      </div>
+      <div class="modal-body" style="display:flex; flex-direction:column; gap:10px;">
+        <div style="font-size:11px; color:var(--th-text-muted); line-height:1.6;" data-i18n="cfg.queueTplDesc">
+          {{queue}} 是待播队列列表：每个元素按下面的模板渲染（列表内所有元素格式一致）。点击变量插入到模板中，留空则使用默认格式。
+        </div>
+        <label class="cfg-field-label" data-i18n="cfg.queueTplLabel">单元素模板</label>
+        <textarea id="queueTplInput" class="tac-textarea" rows="2" placeholder="{{index}}. {{title}} - {{artist}}&#10;多行模板示例：首行单独写 {{ ，末行单独写 }} ，包裹内的换行会原样渲染" style="font-family:var(--font-mono); font-size:12px;"></textarea>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;" id="queueTplVars"></div>
+        <div class="param-slider-label" data-i18n="cfg.queueTplPreview">预览（示例数据）</div>
+        <pre id="queueTplPreview" style="font-family:var(--font-mono); font-size:12px; border:1px solid var(--th-border-subtle); background:var(--th-bg-input); padding:10px; border-radius:2px; white-space:pre-wrap; word-break:break-all; margin:0; min-height:48px;"></pre>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+          <button class="tac-btn tac-btn-sm" id="queueTplResetBtn" data-i18n="cfg.queueTplReset">恢复默认</button>
+          <button class="tac-btn tac-btn-sm tac-btn-primary" onclick="closeQueueTplModal()" data-i18n="cfg.queueTplDone">完成</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Scripts -->
   <script src="assets/js/i18n.js"></script>
   <script src="assets/js/rpc-client.js"></script>
@@ -1307,6 +1498,22 @@
       // 语言切换：setLocale 内部已调用 applyToDOM，此处无需重复（重复调用会二次触碰动态内容）
 
       // RPC Broadcast Listeners
+      // Load initial event history from SQLite on connect
+      const loadEventHistory = async () => {
+        try {
+          const res = await vtuberRPC.call('event.history', { limit: activeConfig?.dataRetention?.frontendLogMax ?? 200 });
+          const stream = document.getElementById('logStream');
+          if (stream && (res.events ?? []).length) {
+            stream.innerHTML = '';
+            for (const e of (res.events ?? []).reverse()) {
+              const msg = (e.user?.name ? e.user.name + ': ' : '') + (e.data?.content ?? e.data?.message ?? JSON.stringify(e.data).slice(0, 60));
+              logMessage('EVENT', msg, 'info');
+            }
+          }
+        } catch (err) { /* keep blank on failure */ }
+      };
+      loadEventHistory();
+
       vtuberRPC.on('event.received', (e) => {
         logMessage('EVENT', `[${e.type}] ${e.user?.name || 'Anon'}: ${e.data?.content || JSON.stringify(e.data || {})}`, 'event');
         incEventCount();
@@ -1314,12 +1521,18 @@
 
       vtuberRPC.on('jukebox.nowPlaying', (item) => {
         updateNowPlayingCard(item);
+        updateDeck(item);
       });
 
-      vtuberRPC.on('jukebox.state', (state) => {
-        renderQueueList(state.queue || []);
-        // nowPlaying 为 null 也要传：让卡片在播空时复位
-        updateNowPlayingCard(state.nowPlaying || null);
+      vtuberRPC.on('jukebox.history', (data) => { renderJukeboxHistory((data || {}).records ?? []); });
+    vtuberRPC.on('jukebox.state', (state) => {
+      renderQueueList(state.queue || []);
+      updateNowPlayingCard(state.nowPlaying || null);
+        updateDeck(state.nowPlaying || null);
+        if (typeof state.volume === 'number') {
+        const deckVol = document.getElementById('jbDeckVolume');
+        if (deckVol && document.activeElement !== deckVol) { deckVol.value = state.volume; document.getElementById('jbDeckVolumeVal').textContent = state.volume; deckVolPaint(deckVol); }
+      }
       });
 
       vtuberRPC.on('config.changed', () => {
@@ -1380,6 +1593,9 @@
       const nearBottom = stream.scrollTop + stream.clientHeight >= stream.scrollHeight - 40;
       const selecting = String(window.getSelection ? window.getSelection() : '') !== '';
       stream.appendChild(div);
+      // DOM cap: data persists in SQLite, only display is trimmed
+      const maxLines = (activeConfig?.dataRetention?.frontendLogMax ?? 200);
+      while (stream.childElementCount > maxLines) stream.removeChild(stream.firstChild);
       if (nearBottom && !selecting) stream.scrollTop = stream.scrollHeight;
     }
 
@@ -1535,10 +1751,11 @@
       }
       // 进入战术面板时刷新其内嵌设置卡片（值来自最新配置）
       if (name === 'live2d') renderPaneSettings('live2d');
-      if (name === 'jukebox') renderPaneSettings('jukebox');
+      if (name === 'jukebox') { renderPaneSettings('jukebox'); void refreshJukeboxHistory(true); }
       if (name === 'audio') renderPaneSettings('audio');
       if (name === 'prompt') { renderPromptVarRef(); void renderToolLoading(); }
       if (name === 'mcp') void renderMcpServers();
+      if (name === 'llmmodels') void renderLlmModels();
       // 音频面板：进入即重拉设备（执行器可能刚连上）
       if (name === 'audio') void loadAudioDevices();
     }
@@ -1564,6 +1781,16 @@
       try {
         const sys = await vtuberRPC.call('system.status');
         document.getElementById('statEventCount').innerText = sys.eventCount || 0;
+        const lastEl = document.getElementById('statEventLast');
+        if (lastEl) {
+          if ((sys.eventCount || 0) > 0) {
+            lastEl.textContent = sys.lastEventAt ? '最近事件 ' + new Date(sys.lastEventAt).toLocaleTimeString('zh-CN') : '';
+          } else if ((sys.filteredCount || 0) > 0) {
+            lastEl.textContent = '收到 ' + sys.filteredCount + ' 条但全被过滤（检查事件类型开关）';
+          } else {
+            lastEl.textContent = '尚无事件到达（检查 Koishi 侧插件转发与日志）';
+          }
+        }
         document.getElementById('statTriggers').innerText = sys.triggers || 0;
 
         // C++ Status
@@ -1587,6 +1814,7 @@
         const jbState = await vtuberRPC.call('jukebox.getState');
         renderQueueList(jbState.queue || []);
         updateNowPlayingCard(jbState.nowPlaying || null);
+        updateDeck(jbState.nowPlaying || null);
         // Jukebox Status
         const jbOn = jbState.running;
         let jbLabel;
@@ -1614,7 +1842,10 @@
         const dir = dirInput ? dirInput.value.trim() : '';
         const res = await vtuberRPC.call('live2d.models.scan', dir ? { dir } : {});
         if (dir) {
-          await vtuberRPC.call('config.updatePaths', { entries: [{ path: 'live2d.modelDir', value: dir }] });
+          const current = (activeConfig?.live2d?.modelDir ?? '').trim();
+      if (dir !== current) {
+        await vtuberRPC.call('config.updatePaths', { entries: [{ path: 'live2d.modelDir', value: dir }] });
+      }
           if (activeConfig) {
             activeConfig.live2d = activeConfig.live2d || {};
             activeConfig.live2d.modelDir = dir;
@@ -2198,8 +2429,8 @@
           <span style="flex:1; overflow:hidden; text-overflow:ellipsis; font-weight:700; font-size:12px;">${escapeHtml(song.title)} <span style="color:var(--th-text-muted); font-weight:400;">- ${escapeHtml(song.artist)}</span></span>
           <span style="font-family:var(--font-mono); font-size:10px; color:var(--th-accent); flex-shrink:0;">${song.duration ? song.duration + 's · ' : ''}${song.meta.provider}</span>
           <span style="display:flex; gap:6px; flex-shrink:0;">
-            <button class="tac-btn tac-btn-sm" title="加入空闲歌单" onclick="addSongToIdle('${escapeHtml(song.meta.identifier)}', '${song.meta.provider}')">＋歌单</button>
-            <button class="tac-btn tac-btn-sm tac-btn-primary" onclick="addSongToQueue('${escapeHtml(song.meta.identifier)}', '${song.meta.provider}')">ADD</button>
+            <button class="tac-btn tac-btn-sm" title="加入空闲歌单" onclick="addSongToIdle('${esc(song.meta.provider)}', '${esc(song.meta.identifier)}')">＋歌单</button>
+            <button class="tac-btn tac-btn-sm tac-btn-primary" onclick="addSongToQueue('${esc(song.meta.identifier)}', '${esc(song.meta.provider)}')">ADD</button>
           </span>
         `;
         container.appendChild(row);
@@ -2207,7 +2438,7 @@
     }
 
     async function addSongToQueue(songId, source) {
-      await vtuberRPC.call('jukebox.add', { songId, source, userName: 'Console Operator' });
+      await vtuberRPC.call('jukebox.add', { songId, source, userId: 'console', userName: 'console' });
       logMessage('JUKEBOX', `Song added to queue: ${songId}`, 'info');
     }
 
@@ -2302,6 +2533,176 @@
     }
 
     /** 工坊的系统提示词是唯一编辑入口：从配置加载，避免空文本误保存清空配置 */
+    // ============ LLM 多模型注册表面板 ============
+    async function renderLlmModels() {
+      const host = document.getElementById('lmModelList');
+      if (!host) return;
+      try {
+        const res = await vtuberRPC.call('llm.models.list');
+        const models = res.models ?? [];
+        const active = res.activeModel ?? '';
+        host.innerHTML = '';
+        if (!models.length) {
+          const ph = document.createElement('div');
+          ph.className = 'empty-state';
+          ph.style.cssText = 'color:var(--th-text-muted); font-size:12px; padding:14px; text-align:center;';
+          ph.textContent = vtuberI18n.t('lm.empty');
+          host.appendChild(ph);
+          return;
+        }
+        for (const m of models) {
+          const isActive = m.name === active;
+          const thinkBadge = m.thinking?.enabled
+            ? '<span style="font-size:10px; color:var(--th-accent); border:1px solid var(--th-border-subtle); padding:1px 6px; border-radius:2px;">' + escapeHtml(vtuberI18n.t('lm.thinking')) + '</span>'
+            : '';
+          const row = document.createElement('div');
+          row.className = 'toggle-row';
+          row.style.cursor = 'default';
+          row.innerHTML = `
+            <div class="toggle-row-left">
+              <div class="toggle-row-title" style="font-family:var(--font-mono);">${escapeHtml(m.label && m.label !== m.name ? m.label : m.name)} ${isActive ? '<span style="font-size:10px; color:var(--th-accent);">[ACTIVE]</span>' : ''}</div>
+              <div class="toggle-row-desc">${escapeHtml(m.provider)} / ${escapeHtml(m.model || '?')}${m.contextWindow ? ' · ' + Math.round(m.contextWindow / 1000) + 'k ctx' : ''}</div>
+            </div>
+            <div class="toggle-row-right">
+              ${thinkBadge}
+              <button class="tac-btn tac-btn-sm" title="编辑">✎</button>
+              <button class="tac-btn tac-btn-sm" title="设为当前使用">${isActive ? '★' : '☆'}</button>
+              <button class="tac-btn tac-btn-sm tac-btn-danger" title="移除">✕</button>
+            </div>
+          `;
+          const [editBtn, activeBtn, delBtn] = row.querySelectorAll('button');
+          editBtn.onclick = () => editLlmModel(m);
+          activeBtn.onclick = async () => {
+            try {
+              await vtuberRPC.call('llm.models.activate', { name: isActive ? '' : m.name });
+              showToast(isActive ? '已切回内联默认配置' : '已设为当前使用：' + m.name, 'success');
+            } catch (e) { showToast('切换失败: ' + (e.message || e), 'err'); }
+            await renderLlmModels();
+          };
+          delBtn.onclick = async () => {
+            try {
+              await vtuberRPC.call('llm.models.remove', { name: m.name });
+              showToast('已移除：' + m.name, 'success');
+            } catch (e) { showToast('移除失败: ' + (e.message || e), 'err'); }
+            await renderLlmModels();
+          };
+          host.appendChild(row);
+        }
+      } catch (e) {
+        host.innerHTML = '';
+        const err = document.createElement('div');
+        err.style.cssText = 'font-size:12px; color:var(--th-error);';
+        err.textContent = '模型列表加载失败: ' + (e.message || e);
+        host.appendChild(err);
+      }
+    }
+
+    function addLlmKvRow(key = '', value = '') {
+      const host = document.getElementById('lmHeaderRows');
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; gap:6px;';
+      const keyInput = document.createElement('input');
+      keyInput.className = 'tac-input';
+      keyInput.style.width = '220px';
+      keyInput.placeholder = 'Header 名（如 X-Api-Version）';
+      keyInput.value = key;
+      const valueInput = document.createElement('input');
+      valueInput.className = 'tac-input';
+      valueInput.style.flex = '1';
+      valueInput.placeholder = '值';
+      valueInput.value = value;
+      const del = document.createElement('button');
+      del.className = 'tac-btn tac-btn-sm tac-btn-danger';
+      del.textContent = '✕';
+      del.onclick = () => row.remove();
+      row.append(keyInput, valueInput, del);
+      host.appendChild(row);
+    }
+
+    function readLlmHeaders() {
+      const out = {};
+      for (const row of document.getElementById('lmHeaderRows').querySelectorAll('div')) {
+        const inputs = row.querySelectorAll('input');
+        if (inputs.length < 2) continue;
+        const key = inputs[0].value.trim();
+        if (key) out[key] = inputs[1].value;
+      }
+      return out;
+    }
+
+    let lmEditingKey = null
+
+    function editLlmModel(m) {
+      lmEditingKey = m.name
+      document.getElementById('lmName').value = m.name;
+      document.getElementById('lmProvider').value = m.provider || 'openai';
+      document.getElementById('lmBaseUrl').value = m.baseURL ?? '';
+      document.getElementById('lmApiKey').value = m.apiKey ?? '';
+      document.getElementById('lmMaxTokens').value = m.maxTokens ?? '';
+      document.getElementById('lmContext').value = m.contextWindow ?? '';
+      document.getElementById('lmTemperature').value = m.temperature ?? '';
+      document.getElementById('lmTopP').value = m.topP ?? '';
+      document.getElementById('lmTimeout').value = m.timeoutMs ?? '';
+      document.getElementById('lmThinkEnabled').checked = m.thinking?.enabled === true;
+      const host = document.getElementById('lmHeaderRows');
+      host.innerHTML = '';
+      for (const [k, v] of Object.entries(m.headers ?? {})) addLlmKvRow(k, v);
+    }
+
+    function clearLlmEditor() {
+      lmEditingKey = null
+      for (const id of ['lmName', 'lmBaseUrl', 'lmApiKey', 'lmMaxTokens', 'lmContext', 'lmTemperature', 'lmTopP', 'lmTimeout']) {
+        document.getElementById(id).value = '';
+      }
+      document.getElementById('lmProvider').value = 'openai';
+      document.getElementById('lmThinkEnabled').checked = false;
+      document.getElementById('lmHeaderRows').innerHTML = '';
+    }
+
+    function readLlmOptionalNumber(id) {
+      const raw = document.getElementById(id).value.trim();
+      if (!raw) return undefined;
+      const num = Number(raw);
+      return Number.isFinite(num) && num > 0 ? num : undefined;
+    }
+
+    async function saveLlmModel() {
+      // 模型名 = 注册键 = 显示名 = 请求的模型 ID
+      const name = document.getElementById('lmName').value.trim();
+      if (!name) { showToast('请填写模型名', 'warn'); return; }
+      const headers = readLlmHeaders();
+      try {
+        await vtuberRPC.call('llm.models.upsert', {
+          name,
+          label: name,
+          provider: document.getElementById('lmProvider').value,
+          baseURL: document.getElementById('lmBaseUrl').value.trim(),
+          apiKey: document.getElementById('lmApiKey').value,
+          model: name,
+          headers: Object.keys(headers).length ? headers : undefined,
+          thinking: { enabled: document.getElementById('lmThinkEnabled').checked },
+          maxTokens: readLlmOptionalNumber('lmMaxTokens'),
+          contextWindow: readLlmOptionalNumber('lmContext'),
+          temperature: readLlmOptionalNumber('lmTemperature'),
+          topP: readLlmOptionalNumber('lmTopP'),
+          timeoutMs: readLlmOptionalNumber('lmTimeout'),
+        });
+        // 编辑时改了模型名 = 重命名注册键：先迁移「当前使用」指向再删旧键
+        if (lmEditingKey && lmEditingKey !== name) {
+          const list = await vtuberRPC.call('llm.models.list');
+          if (list.activeModel === lmEditingKey) {
+            await vtuberRPC.call('llm.models.activate', { name });
+          }
+          await vtuberRPC.call('llm.models.remove', { name: lmEditingKey });
+        }
+        showToast('已保存模型：' + name, 'success');
+        lmEditingKey = null;
+      } catch (e) {
+        showToast('保存失败: ' + (e.message || e), 'err');
+      }
+      await renderLlmModels();
+    }
+
     // ============ MCP 接入面板 ============
     async function renderMcpServers() {
       const host = document.getElementById('mcpServerList');
@@ -2323,10 +2724,12 @@
           const row = document.createElement('div');
           row.className = 'toggle-row';
           row.style.cursor = 'default';
+          const target = sv.transport === 'http' ? (sv.url || sv.command) : sv.command;
+          const transportTag = sv.transport === 'http' ? '[HTTP]' : '[STDIO]';
           row.innerHTML = `
             <div class="toggle-row-left">
-              <div class="toggle-row-title" style="font-family:var(--font-mono);">${escapeHtml(sv.name)}</div>
-              <div class="toggle-row-desc">${escapeHtml(sv.command)}${sv.error ? ' · <span style="color:var(--th-error);">' + escapeHtml(sv.error) + '</span>' : ''}</div>
+              <div class="toggle-row-title" style="font-family:var(--font-mono);">${escapeHtml(sv.name)} <span style="font-size:10px; color:var(--th-accent);">${transportTag}</span></div>
+              <div class="toggle-row-desc">${escapeHtml(target)}${sv.error ? ' · <span style="color:var(--th-error);">' + escapeHtml(sv.error) + '</span>' : ''}</div>
             </div>
             <div class="toggle-row-right">
               <span style="font-family:var(--font-mono); font-size:11px; color:var(--th-accent); flex-shrink:0;">${sv.toolCount} tools</span>
@@ -2352,23 +2755,179 @@
       }
     }
 
+    // ===== MCP 表单键值行（环境变量 / HTTP 请求头共用） =====
+    function addMcpKvRow(containerId, key = '', value = '') {
+      const host = document.getElementById(containerId);
+      if (!host) return;
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; gap:6px;';
+      const isEnv = containerId === 'mcpEnvRows';
+      const keyInput = document.createElement('input');
+      keyInput.className = 'tac-input';
+      keyInput.style.width = isEnv ? '200px' : '220px';
+      keyInput.placeholder = isEnv ? '变量名（如 API_KEY）' : 'Header 名（如 Authorization）';
+      keyInput.setAttribute('data-i18n-holder', isEnv ? 'mcp.envKeyHolder' : 'mcp.headerKeyHolder');
+      keyInput.value = key;
+      const valueInput = document.createElement('input');
+      valueInput.className = 'tac-input';
+      valueInput.style.flex = '1';
+      valueInput.placeholder = isEnv ? '值' : '值（如 Bearer eyJ...）';
+      valueInput.setAttribute('data-i18n-holder', isEnv ? 'mcp.envValueHolder' : 'mcp.headerValueHolder');
+      valueInput.value = value;
+      const del = document.createElement('button');
+      del.className = 'tac-btn tac-btn-sm tac-btn-danger';
+      del.textContent = '✕';
+      del.onclick = () => row.remove();
+      row.append(keyInput, valueInput, del);
+      host.appendChild(row);
+      vtuberI18n.applyToDOM(row);
+    }
+
+    function readMcpKvRows(containerId) {
+      const out = {};
+      const host = document.getElementById(containerId);
+      if (!host) return out;
+      for (const row of host.querySelectorAll('div')) {
+        const inputs = row.querySelectorAll('input');
+        if (inputs.length < 2) continue;
+        const key = inputs[0].value.trim();
+        if (key) out[key] = inputs[1].value;
+      }
+      return out;
+    }
+
+    function clearMcpKvRows(containerId) {
+      const host = document.getElementById(containerId);
+      if (host) host.innerHTML = '';
+    }
+
+    function onMcpTransportChange() {
+      const transport = document.getElementById('mcpAddTransport').value;
+      const isHttp = transport === 'http';
+      document.getElementById('mcpStdioBlock').style.display = isHttp ? 'none' : 'flex';
+      document.getElementById('mcpHttpBlock').style.display = isHttp ? 'flex' : 'none';
+      document.getElementById('mcpAiParseBtn').style.display = isHttp ? '' : 'none';
+    }
+
     async function addMcpServer() {
       const name = document.getElementById('mcpAddName').value.trim();
-      const commandLine = document.getElementById('mcpAddCommand').value.trim();
-      if (!name || !commandLine) { showToast('请填写名称与命令', 'warn'); return; }
-      const parts = commandLine.split(/\s+/);
-      const command = parts[0];
-      const args = parts.slice(1);
+      const transport = document.getElementById('mcpAddTransport').value;
+      if (!name) { showToast('请填写名称', 'warn'); return; }
+      let res;
       try {
-        const res = await vtuberRPC.call('mcp.server.add', { name, command, args });
+      if (transport === 'http') {
+        const url = document.getElementById('mcpAddUrl').value.trim();
+        if (!url) { showToast('请填写 URL', 'warn'); return; }
+        const headers = readMcpKvRows('mcpHeaderRows');
+        res = await vtuberRPC.call('mcp.server.add', { name, url, headers: Object.keys(headers).length ? headers : undefined });
+      } else {
+        const commandLine = document.getElementById('mcpAddCommand').value.trim();
+        if (!commandLine) { showToast('请填写命令', 'warn'); return; }
+        const parts = commandLine.split(/\s+/);
+        const env = readMcpKvRows('mcpEnvRows');
+        res = await vtuberRPC.call('mcp.server.add', { name, command: parts[0], args: parts.slice(1), env: Object.keys(env).length ? env : undefined });
+      }
         if (res.ok) showToast(`✅ MCP 已连接：${name}（${res.toolCount} 个工具）`, 'success');
         else showToast(`连接失败：${res.error || '未知错误'}`, 'err');
         document.getElementById('mcpAddName').value = '';
         document.getElementById('mcpAddCommand').value = '';
+        document.getElementById('mcpAddUrl').value = '';
+        clearMcpKvRows('mcpEnvRows');
+        clearMcpKvRows('mcpHeaderRows');
       } catch (e) {
         showToast('添加失败: ' + (e.message || e), 'err');
       }
       await renderMcpServers();
+    }
+
+    // ===== MCP AI 文档解析模态框 =====
+    let mcpAiTab = 'text';
+    let mcpAiSuggestion = null;
+
+    function openMcpAiModal() {
+      document.getElementById('mcpAiModal').classList.add('open');
+      switchMcpAiTab('text');
+    }
+
+    function closeMcpAiModal() {
+      document.getElementById('mcpAiModal').classList.remove('open');
+    }
+
+    function switchMcpAiTab(tab) {
+      mcpAiTab = tab;
+      for (const t of ['text', 'image', 'url']) {
+        const btn = document.getElementById('mcpAiTab' + t.charAt(0).toUpperCase() + t.slice(1));
+        if (btn) btn.classList.toggle('tac-btn-primary', t === tab);
+        const pane = document.getElementById('mcpAiInput' + t.charAt(0).toUpperCase() + t.slice(1));
+        if (pane) pane.style.display = t === tab ? 'flex' : 'none';
+      }
+    }
+
+    function readImageFilesAsDataUrls(files) {
+      return Promise.all([...files].map((file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('读取图片失败：' + file.name));
+        reader.readAsDataURL(file);
+      })));
+    }
+
+    async function runMcpAiParse() {
+      const status = document.getElementById('mcpAiStatus');
+      const resultBox = document.getElementById('mcpAiResult');
+      status.textContent = '…';
+      resultBox.textContent = '';
+      mcpAiSuggestion = null;
+      try {
+        let params;
+        if (mcpAiTab === 'text') {
+          const text = document.getElementById('mcpAiText').value.trim();
+          if (!text) { showToast('请粘贴文档内容', 'warn'); status.textContent = ''; return; }
+          params = { mode: 'text', text };
+        } else if (mcpAiTab === 'image') {
+          const files = document.getElementById('mcpAiImages').files;
+          if (!files?.length) { showToast('请选择截图', 'warn'); status.textContent = ''; return; }
+          params = { mode: 'images', images: await readImageFilesAsDataUrls(files) };
+        } else {
+          const url = document.getElementById('mcpAiUrl').value.trim();
+          if (!url) { showToast('请填写文档 URL', 'warn'); status.textContent = ''; return; }
+          params = { mode: 'url', url };
+        }
+        const res = await vtuberRPC.call('mcp.config.suggest', params);
+        if (res.ok || Object.keys(res.suggestion ?? {}).length) {
+          mcpAiSuggestion = res.suggestion ?? {};
+          const preview = {
+            url: mcpAiSuggestion.url,
+            headers: mcpAiSuggestion.headers,
+            notes: mcpAiSuggestion.notes,
+          };
+          resultBox.textContent = JSON.stringify(preview, null, 2);
+          status.textContent = res.ok ? '✓' : '⚠ ' + (res.errors ?? []).join('; ');
+          if (!res.ok && (res.errors ?? []).length) showToast('部分字段有问题：' + res.errors.join('; '), 'warn');
+        } else {
+          status.textContent = '✕';
+          resultBox.textContent = (res.errors ?? []).join('\n') || '解析失败';
+          showToast('解析失败：' + ((res.errors ?? [])[0] || '未知错误'), 'err');
+        }
+      } catch (e) {
+        status.textContent = '✕';
+        resultBox.textContent = String(e.message || e);
+        showToast('解析失败: ' + (e.message || e), 'err');
+      }
+    }
+
+    /** 应用建议回填 HTTP 表单（仅回填，不保存不连接；传输切到 HTTP） */
+    function applyMcpAiSuggestion() {
+      if (!mcpAiSuggestion?.url && !mcpAiSuggestion?.headers) { showToast('没有可应用的建议', 'warn'); return; }
+      document.getElementById('mcpAddTransport').value = 'http';
+      onMcpTransportChange();
+      if (mcpAiSuggestion.url) document.getElementById('mcpAddUrl').value = String(mcpAiSuggestion.url);
+      clearMcpKvRows('mcpHeaderRows');
+      for (const [key, value] of Object.entries(mcpAiSuggestion.headers ?? {})) {
+        addMcpKvRow('mcpHeaderRows', key, String(value));
+      }
+      closeMcpAiModal();
+      showToast('已回填表单，请补全密钥后点 CONNECT', 'success');
     }
 
     async function refreshMcpServers() {
@@ -2729,6 +3288,11 @@
 
     /** 战术面板内嵌设置卡片：渲染 pane 分区的字段（与配置中心同款控件与自动保存） */
     function renderPaneSettings(paneKey) {
+      // jukebox 专属钩子不依赖设置网格（#jukeboxSettingsFields 已随配置迁页删除）
+      if (paneKey === 'jukebox') {
+        try { void refreshMusicLoginProviders(); } catch (e) { console.warn('refreshMusicLoginProviders failed:', e); }
+        try { renderIdlePlaylist(); } catch (e) { console.warn('renderIdlePlaylist failed:', e); }
+      }
       const gridId = paneKey === 'live2d' ? 'live2dSettingsFields' : paneKey === 'audio' ? 'audioSettingsFields' : 'jukeboxSettingsFields';
       const grid = document.getElementById(gridId);
       if (!grid) return;
@@ -2762,13 +3326,6 @@
         // 尚未嗅探过资源则自动来一次
         if (!l2dAssets) void scanModelAssets();
         else renderAssetRegistry();
-      }
-      if (paneKey === 'jukebox') {
-        // 音源登录已合并进「多音源歌曲搜索」卡片下段
-        void refreshMusicLoginProviders();
-        renderNowPlayingOutputs(true);
-        renderOrderCommands(true);
-        renderIdlePlaylist();
       }
     }
 
@@ -2833,6 +3390,8 @@
         for (const [k, v] of Object.entries(value)) draft[k] = Array.isArray(v) ? v.map(String) : [];
       }
       const save = () => savePathDebounced(path, JSON.parse(JSON.stringify(draft)));
+      // 渠道级折叠状态：跨 redraw 保持（控件重建时回到全展开）
+      const collapsed = new Set();
 
       const redraw = () => {
         host.querySelectorAll('.cc-card, .cc-add-row').forEach(el => el.remove());
@@ -2840,22 +3399,39 @@
           const card = document.createElement('div');
           card.className = 'cc-card';
           card.style.cssText = 'border:1px solid var(--th-border-subtle); border-radius:2px; padding:8px 10px; margin-bottom:8px;';
+          // 可折叠头：渠道名 + 指令数 + 折叠箭头 + 删除渠道
           const head = document.createElement('div');
-          head.style.cssText = 'display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;';
+          head.style.cssText = 'display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;';
+          const foldBtn = document.createElement('span');
+          foldBtn.style.cssText = 'font-size:10px; color:var(--th-text-muted); width:12px; flex-shrink:0;';
           const nameEl = document.createElement('span');
           nameEl.style.cssText = 'font-size:12px; font-weight:700; color:var(--th-accent);';
           nameEl.textContent = (MUSIC_PROVIDER_NAMES[channel] || channel) + (MUSIC_PROVIDER_NAMES[channel] ? '' : ' (自定义)');
+          const countEl = document.createElement('span');
+          countEl.style.cssText = 'font-size:10px; color:var(--th-text-muted); font-family:var(--font-mono);';
+          countEl.textContent = (cmds.filter(Boolean).length || cmds.length) + ' 条指令';
+          const spacer = document.createElement('span');
+          spacer.style.flex = '1';
           const delChannel = document.createElement('button');
           delChannel.className = 'tac-btn tac-btn-sm tac-btn-danger';
-          delChannel.style.cssText = 'padding:1px 8px;';
+          delChannel.style.cssText = 'padding:1px 8px; flex-shrink:0;';
           delChannel.textContent = '删除渠道';
-          delChannel.onclick = () => { delete draft[channel]; save(); redraw(); };
-          head.appendChild(nameEl);
-          head.appendChild(delChannel);
+          delChannel.onclick = (ev) => { ev.stopPropagation(); delete draft[channel]; collapsed.delete(channel); save(); redraw(); };
+          head.append(foldBtn, nameEl, countEl, spacer, delChannel);
           card.appendChild(head);
 
           const listHost = document.createElement('div');
+          listHost.style.marginTop = '6px';
           card.appendChild(listHost);
+          const applyFold = () => {
+            const folded = collapsed.has(channel);
+            listHost.style.display = folded ? 'none' : '';
+            foldBtn.textContent = folded ? '▶' : '▼';
+          };
+          head.onclick = () => {
+            if (collapsed.has(channel)) collapsed.delete(channel); else collapsed.add(channel);
+            applyFold();
+          };
           const appendRow = (cmd, i) => {
             const row = document.createElement('div');
             row.style.cssText = 'display:flex; gap:6px; align-items:center; margin-bottom:6px;';
@@ -2876,9 +3452,10 @@
           const addOne = document.createElement('button');
           addOne.className = 'tac-btn tac-btn-sm';
           addOne.textContent = vtuberI18n.t('jb.addKeyword');
-          addOne.onclick = () => { draft[channel].push(''); redraw(); const inputs = listHost.querySelectorAll('input'); if (inputs.length) inputs[inputs.length - 1].focus(); };
+          addOne.onclick = () => { draft[channel].push(''); save(); redraw(); const inputs = listHost.querySelectorAll('input'); if (inputs.length) inputs[inputs.length - 1].focus(); };
           cmds.forEach((c, i) => appendRow(c, i));
           listHost.appendChild(addOne);
+          applyFold();
           host.insertBefore(card, host.querySelector('.cc-add-row') || null);
         }
 
@@ -2913,344 +3490,256 @@
       redraw();
     }
 
-    // ============ ORDER COMMANDS · 点歌指令（专用卡片，芯片编辑） ============
-    let orderDraft = null; // { enabled, keywords: string[], channelCommands: Record<string, string[]> }
+    // ============ 播放中台 PLAYBACK DECK ============
+    const deckState = { np: null, dragging: false, anchorElapsed: 0, anchorAt: 0, timer: null };
 
-    function renderOrderCommands(fromConfig) {
-      const kwHost = document.getElementById('orderKeywords');
-      const chHost = document.getElementById('orderChannels');
-      if (!kwHost || !chHost || !activeConfig) return;
-      const dOrder = (activeConfig.music && activeConfig.music.directOrder) || {};
-      if (fromConfig || !orderDraft) {
-        orderDraft = {
-          enabled: Boolean(dOrder.enabled),
-          keywords: [...(dOrder.keywords ?? [])],
-          channelCommands: {},
-        };
-        for (const [k, v] of Object.entries(dOrder.channelCommands ?? {})) {
-          orderDraft.channelCommands[k] = [...(Array.isArray(v) ? v : [])]
-        }
-      }
-      setToggleCardState('directOrderStatus', 'directOrderLed', orderDraft.enabled);
+    function deckFmt(sec) {
+      const s = Math.max(0, Math.floor(sec));
+      return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
 
-      // 通用触发词芯片
-      kwHost.innerHTML = '';
-      orderDraft.keywords.forEach((kw, i) => {
-        kwHost.appendChild(buildOrderChip(kw, {
-          onCommit: (v) => { orderDraft.keywords[i] = v; saveOrderDraft(); renderOrderCommands(false); },
-          onDelete: () => { orderDraft.keywords.splice(i, 1); saveOrderDraft(true); renderOrderCommands(false); },
-        }));
-      });
-      const kwAdd = document.createElement('button');
-      kwAdd.className = 'tac-btn tac-btn-sm';
-      kwAdd.style.cssText = 'padding:1px 10px; font-size:11px;';
-      kwAdd.textContent = vtuberI18n.t('jb.addKeyword');
-      kwAdd.onclick = () => { orderDraft.keywords.push(''); renderOrderCommands(false); focusLastChip(kwHost); };
-      kwHost.appendChild(kwAdd);
+    /** 当前应显示的已播秒数：广播锚点 + 本地时钟推进（暂停冻结） */
+    function deckElapsedNow() {
+      const np = deckState.np;
+      if (!np) return 0;
+      if (np.paused) return np.elapsed ?? 0;
+      return (np.elapsed ?? 0) + (Date.now() - deckState.anchorAt) / 1000;
+    }
 
-      // 渠道行
-      chHost.innerHTML = '';
-      for (const [channel, cmds] of Object.entries(orderDraft.channelCommands)) {
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex; align-items:center; gap:10px; flex-wrap:wrap; border:1px solid var(--th-border-subtle); border-radius:2px; padding:6px 10px;';
-        const badge = document.createElement('span');
-        badge.style.cssText = 'font-size:11px; font-weight:700; color:var(--th-accent); flex-shrink:0; min-width:150px;';
-        badge.textContent = MUSIC_PROVIDER_NAMES[channel] || channel;
-        const delChannel = document.createElement('button');
-        delChannel.className = 'tac-btn tac-btn-sm tac-btn-danger';
-        delChannel.style.cssText = 'padding:0 8px; font-size:10px; flex-shrink:0;';
-        delChannel.textContent = '✕';
-        delChannel.title = '删除该渠道触发词';
-        delChannel.onclick = () => { delete orderDraft.channelCommands[channel]; saveOrderDraft(true); renderOrderCommands(false); };
-        row.appendChild(badge);
-        row.appendChild(delChannel);
-        const chips = document.createElement('span');
-        chips.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px; align-items:center;';
-        cmds.forEach((cmd, i) => {
-          chips.appendChild(buildOrderChip(cmd, {
-            onCommit: (v) => { orderDraft.channelCommands[channel][i] = v; saveOrderDraft(); renderOrderCommands(false); },
-            onDelete: () => { orderDraft.channelCommands[channel].splice(i, 1); saveOrderDraft(true); renderOrderCommands(false); },
-          }));
-        });
-        const addOne = document.createElement('button');
-        addOne.className = 'tac-btn tac-btn-sm';
-        addOne.style.cssText = 'padding:1px 10px; font-size:11px;';
-        addOne.textContent = '+ 指令';
-        addOne.onclick = () => { orderDraft.channelCommands[channel].push(''); renderOrderCommands(false); focusLastChip(chips); };
-        chips.appendChild(addOne);
-        row.appendChild(chips);
-        chHost.appendChild(row);
-      }
+    /** 主按钮 SVG 图标（play 三角的光学右移补偿在 CSS .deck-ico-play 上） */
+    const DECK_ICONS = {
+      play: '<svg class="deck-ico-play" viewBox="0 0 24 24"><path d="M7.6 4.6v14.8L20.4 12z"/></svg>',
+      pause: '<svg viewBox="0 0 24 24"><path d="M6.6 5h3.6v14H6.6zM13.8 5h3.6v14h-3.6z"/></svg>',
+    };
 
-      // 添加渠道
-      const addHost = document.getElementById('orderAddChannel');
-      addHost.innerHTML = '';
-      const remaining = Object.keys(MUSIC_PROVIDER_NAMES).filter((k) => !(k in orderDraft.channelCommands));
-      if (remaining.length) {
-        const sel = document.createElement('select');
-        sel.className = 'tac-select';
-        sel.style.cssText = 'width:220px;';
-        remaining.forEach((k) => {
-          const o = document.createElement('option');
-          o.value = k; o.textContent = MUSIC_PROVIDER_NAMES[k];
-          sel.appendChild(o);
-        });
-        const addBtn = document.createElement('button');
-        addBtn.className = 'tac-btn tac-btn-sm tac-btn-primary';
-        addBtn.textContent = vtuberI18n.t('jb.addChannel');
-        addBtn.onclick = () => { orderDraft.channelCommands[sel.value] = ['']; saveOrderDraft(true); renderOrderCommands(false); };
-        addHost.appendChild(sel);
-        addHost.appendChild(addBtn);
+    /** 音量条填充：粉色画到当前值（appearance:none 的轨道背景由 JS 涂） */
+    function deckVolPaint(vol) {
+      const v = Number(vol.value) || 0;
+      const p = Math.max(0, Math.min(100, v));
+      vol.style.background = 'linear-gradient(to right, #fa586a ' + p + '%, rgba(255,255,255,0.15) ' + p + '%)';
+    }
+
+    function updateDeck(np) {
+      deckState.np = np || null;
+      deckState.anchorElapsed = np?.elapsed ?? 0;
+      deckState.anchorAt = Date.now();
+      // 换歌时清歌词行缓存，避免新旧行号相同残留上一首歌词
+      const lyricHost = document.getElementById('jbDeckLyric');
+      if (lyricHost) lyricHost.dataset.idx = '';
+      const titleEl = document.getElementById('jbDeckTitle');
+      const artistEl = document.getElementById('jbDeckArtist');
+      const cover = document.getElementById('jbDeckCover');
+      const fallback = document.getElementById('jbDeckCoverFallback');
+      const bg = document.getElementById('jbDeckBg');
+      const btn = document.getElementById('jbDeckPlayPause');
+      const vinyl = document.getElementById('jbDeckVinyl');
+      if (!np) {
+        titleEl.textContent = vtuberI18n.t('jb.deckIdle');
+        artistEl.textContent = '—';
+        cover.style.display = 'none'; fallback.style.display = '';
+        btn.innerHTML = DECK_ICONS.play;
+        bg.style.opacity = '0';
+        vinyl.style.animation = 'none';
+        document.getElementById('jbDeckDuration').textContent = '-0:00';
       } else {
-        const note = document.createElement('span');
-        note.style.cssText = 'font-size:11px; color:var(--th-text-muted);';
-        note.textContent = '全部已知音源均已配置触发词';
-        addHost.appendChild(note);
+        titleEl.textContent = np.title || '';
+        artistEl.textContent = np.artist || '';
+        if (np.cover) { cover.src = np.cover; cover.style.display = ''; fallback.style.display = 'none'; }
+        else { cover.style.display = 'none'; fallback.style.display = ''; }
+        if (np.cover) { if (bg.getAttribute('src') !== np.cover) bg.src = np.cover; bg.style.opacity = '1'; }
+        else bg.style.opacity = '0';
+        btn.innerHTML = np.paused ? DECK_ICONS.play : DECK_ICONS.pause;
+        document.getElementById('jbDeckDuration').textContent = '-' + deckFmt(np.duration || 0);
+        vinyl.style.animation = np.paused ? 'none' : 'jbVinylSpin 3s linear infinite';
       }
+      deckTick();
     }
 
-    /** 指令芯片：点击进入行内编辑，Enter/失焦提交，✕ 删除 */
-    function buildOrderChip(value, handlers) {
-      const chip = document.createElement('span');
-      chip.className = 'order-chip';
-      chip.title = '点击编辑指令';
-      const label = document.createElement('span');
-      label.textContent = value || '（新指令）';
-      label.style.opacity = value ? '1' : '.5';
-      const del = document.createElement('span');
-      del.className = 'chip-del';
-      del.textContent = '✕';
-      del.onclick = (e) => { e.stopPropagation(); handlers.onDelete(); };
-      chip.appendChild(label);
-      chip.appendChild(del);
-      chip.onclick = () => {
-        const input = document.createElement('input');
-        input.className = 'tac-input';
-        input.style.cssText = 'width:100px; font-size:11px; padding:1px 6px;';
-        input.value = value;
-        chip.replaceWith(input);
-        input.focus();
-        input.select();
-        input.onblur = () => {
-          const v = input.value.trim();
-          if (v && v !== value) handlers.onCommit(v);
-          else renderOrderCommands(false);
-        };
-        input.onkeydown = (ev) => {
-          if (ev.key === 'Enter') input.blur();
-          if (ev.key === 'Escape') { input.onblur = null; renderOrderCommands(false); }
-        };
-      };
-      return chip;
-    }
-
-    function focusLastChip(host) {
-      const inputs = host.querySelectorAll('input');
-      if (inputs.length) { inputs[inputs.length - 1].focus(); inputs[inputs.length - 1].select(); }
-    }
-
-    function saveOrderDraft(immediate) {
-      const keywords = orderDraft.keywords.map((s) => s.trim()).filter((s) => s !== '');
-      const channelCommands = {};
-      for (const [k, v] of Object.entries(orderDraft.channelCommands)) {
-        const cmds = v.map((s) => s.trim()).filter((s) => s !== '');
-        if (cmds.length) channelCommands[k] = cmds;
-      }
-      if (activeConfig && activeConfig.music && activeConfig.music.directOrder) {
-        activeConfig.music.directOrder.keywords = keywords;
-        activeConfig.music.directOrder.channelCommands = channelCommands;
-      }
-      savePathDebounced('music.directOrder.keywords', keywords, immediate ? 0 : 400);
-      savePathDebounced('music.directOrder.channelCommands', channelCommands, immediate ? 0 : 400);
-    }
-
-    function onDirectOrderToggle(checked) {
-      if (!orderDraft) return;
-      orderDraft.enabled = checked;
-      setToggleCardState('directOrderStatus', 'directOrderLed', checked);
-      if (activeConfig && activeConfig.music && activeConfig.music.directOrder) {
-        activeConfig.music.directOrder.enabled = checked;
-      }
-      savePathDebounced('music.directOrder.enabled', checked, 0);
-    }
-
-    // ============ IDLE PLAYLIST · 空闲歌单 ============
-    let idlePreview = null; // jukebox.playlist.resolve 结果
-
-    async function renderIdlePlaylist() {
-      const listHost = document.getElementById('idlePlaylistList');
-      if (!listHost || !activeConfig) return;
-      const cfg = activeConfig.music || {};
-      setToggleCardState('idleLoopStatus', 'idleLoopLed', Boolean(cfg.idleLoop));
-      const refs = cfg.idlePlaylist ?? [];
-      const badge = document.getElementById('idleCountBadge');
-      if (badge) badge.textContent = refs.length + ' 首';
-      listHost.innerHTML = '';
-      if (!refs.length) {
-        const ph = document.createElement('div');
-        ph.style.cssText = 'color:var(--th-text-muted); font-size:12px; padding:8px; text-align:center;';
-        ph.textContent = '空闲歌单为空：队列为空时自动按此列表播放。可粘贴歌单链接导入，或从搜索结果「＋歌单」加入。';
-        listHost.appendChild(ph);
+    function deckTick() {
+      const np = deckState.np;
+      const fill = document.getElementById('jbDeckFill');
+      const elapsedEl = document.getElementById('jbDeckElapsed');
+      if (!np) {
+        fill.style.width = '0%';
+        elapsedEl.textContent = '0:00';
         return;
       }
-      // 批量解析为可读标题（失败回落原始 ref）；大歌单解析较慢，放宽超时并先显示占位
-      let resolved = new Map();
-      const ph = document.createElement('div');
-      ph.style.cssText = 'color:var(--th-text-muted); font-size:11px; padding:4px;';
-      ph.textContent = '正在解析歌曲信息…';
-      listHost.appendChild(ph);
-      try {
-        const res = await vtuberRPC.call('jukebox.idle.resolve', {}, 120000);
-        resolved = new Map((res.items ?? []).map((it) => [it.ref, it]));
-      } catch { /* 解析失败仅显示原始 ref */ }
-      listHost.innerHTML = '';
-      refs.forEach((ref, i) => {
-        const info = resolved.get(ref);
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex; align-items:center; gap:8px; padding:3px 8px; border:1px solid var(--th-border-subtle); border-radius:2px;';
-        const prov = document.createElement('span');
-        prov.style.cssText = 'font-size:10px; color:var(--th-accent); flex-shrink:0; width:56px; overflow:hidden; text-overflow:ellipsis;';
-        prov.textContent = info?.provider ?? (ref.split(':')[0] || '?');
-        const label = document.createElement('span');
-        label.style.cssText = 'flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
-        label.title = ref;
-        label.textContent = info?.ok ? `${info.title} - ${info.artist}` : ref;
-        if (info && !info.ok) label.style.color = 'var(--th-warning)';
-        const del = document.createElement('button');
-        del.className = 'tac-btn tac-btn-sm tac-btn-danger';
-        del.style.cssText = 'padding:0 7px; font-size:10px; flex-shrink:0;';
-        del.textContent = '✕';
-        del.onclick = () => {
-          const next = [...(activeConfig.music.idlePlaylist ?? [])];
-          next.splice(i, 1);
-          saveIdleRefs(next);
-        };
-        row.appendChild(prov);
-        row.appendChild(label);
-        row.appendChild(del);
-        listHost.appendChild(row);
+      const duration = Math.max(1, np.duration || 1);
+      const elapsed = Math.min(deckElapsedNow(), duration);
+      if (!deckState.dragging) {
+        fill.style.width = (elapsed / duration) * 100 + '%';
+        elapsedEl.textContent = deckFmt(elapsed);
+      }
+      deckRenderLyric(elapsed);
+    }
+
+    function deckRenderLyric(elapsed) {
+      const host = document.getElementById('jbDeckLyric');
+      const lines = deckState.np?.lyrics ?? [];
+      if (!lines.length) {
+        if (host.childElementCount !== 1 || host.firstChild.tagName !== 'SPAN') {
+          host.innerHTML = '<span style="font-size:12px; color:rgba(255,255,255,0.3);">' + vtuberI18n.t('jb.deckNoLyric') + '</span>';
+        }
+        return;
+      }
+      let idx = 0;
+      for (let i = 0; i < lines.length; i++) { if (lines[i].time <= elapsed) idx = i; else break }
+      // 恒渲染三行（前/当/后）：越界或空词行用同尺寸占位（不换行空格，防被 HTML 折叠），行盒高度稳定不跳动
+      const rows = [lines[idx - 1], lines[idx], lines[idx + 1]];
+      const html = rows.map((l, i) => {
+        const cur = i === 1;
+        const size = cur ? '15px' : '12px';
+        const color = cur ? '#fff' : 'rgba(255,255,255,0.35)';
+        const weight = cur ? 600 : 400;
+        const text = l ? (escapeHtml(l.lyric) || '\u00A0') : '\u00A0';
+        return '<span style="font-size:' + size + '; color:' + color + '; font-weight:' + weight + '; transition:all .3s;">' + text + '</span>';
+      }).join('');
+      if (host.dataset.idx !== String(idx)) { host.innerHTML = html; host.dataset.idx = String(idx) }
+    }
+
+    function initDeckControls() {
+      const track = document.getElementById('jbDeckTrack');
+      const fill = document.getElementById('jbDeckFill');
+      const elapsedEl = document.getElementById('jbDeckElapsed');
+      const ratioFromEvent = (ev) => {
+        const rect = track.getBoundingClientRect();
+        return Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+      };
+      track.addEventListener('pointerdown', (ev) => {
+        if (!deckState.np) return;
+        deckState.dragging = true;
+        track.setPointerCapture(ev.pointerId);
       });
+      track.addEventListener('pointermove', (ev) => {
+        if (!deckState.dragging) return;
+        fill.style.width = ratioFromEvent(ev) * 100 + '%';
+        elapsedEl.textContent = deckFmt(ratioFromEvent(ev) * (deckState.np.duration || 0));
+      });
+      const finishDrag = async (ev) => {
+        if (!deckState.dragging) return;
+        deckState.dragging = false;
+        const sec = Math.round(ratioFromEvent(ev) * (deckState.np.duration || 0));
+        try {
+          const res = await vtuberRPC.call('jukebox.seek', { sec });
+          if (!res.success) showToast(res.message || 'seek 失败', 'err');
+        } catch (e) { showToast('seek 失败: ' + (e.message || e), 'err') }
+      };
+      track.addEventListener('pointerup', finishDrag);
+      track.addEventListener('pointercancel', () => { deckState.dragging = false; });
+
+      document.getElementById('jbDeckPlayPause').onclick = async () => {
+        if (!deckState.np) { showToast(vtuberI18n.t('jb.deckIdleTip'), 'warn'); return }
+        try {
+          const res = deckState.np.paused ? await vtuberRPC.call('jukebox.resume') : await vtuberRPC.call('jukebox.pause');
+          if (!res.success) showToast(res.message, 'warn');
+        } catch (e) { showToast(String(e.message || e), 'err') }
+      };
+      document.getElementById('jbDeckPrev').onclick = async () => {
+        try {
+          const res = await vtuberRPC.call('jukebox.previous');
+          if (!res.success) showToast(res.message, 'warn');
+        } catch (e) { showToast(String(e.message || e), 'err') }
+      };
+      document.getElementById('jbDeckSkip').onclick = () => jbAction('skip');
+      const vol = document.getElementById('jbDeckVolume');
+      const volVal = document.getElementById('jbDeckVolumeVal');
+      vol.oninput = () => { volVal.textContent = vol.value; deckVolPaint(vol); };
+      vol.onchange = () => { void vtuberRPC.call('jukebox.setVolume', { volume: Number(vol.value) }); };
+      deckVolPaint(vol);
+      // 背景封面加载失败（外链过期等）时隐藏，避免裂图叠在毛玻璃层下
+      const deckBg = document.getElementById('jbDeckBg');
+      deckBg.onerror = () => { deckBg.style.opacity = '0'; };
+      deckState.timer = setInterval(deckTick, 250);
+    }
+    initDeckControls();
+
+    // ============ 播放记录 PLAY HISTORY ============
+    const HISTORY_STATUS_META = {
+      completed: { color: 'var(--th-success)', text: () => vtuberI18n.t('jb.hDone') },
+      skipped: { color: 'var(--th-warning)', text: () => vtuberI18n.t('jb.hSkipped') },
+      interrupted: { color: 'var(--th-text-muted)', text: () => vtuberI18n.t('jb.hInterrupted') },
+      failed: { color: 'var(--th-error)', text: () => vtuberI18n.t('jb.hFailed') },
+    };
+
+    function fmtHistoryTime(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts);
+      const p = (n) => String(n).padStart(2, '0');
+      return (d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
     }
 
-    function saveIdleRefs(refs) {
-      if (!activeConfig.music) activeConfig.music = {};
-      activeConfig.music.idlePlaylist = refs;
-      savePathDebounced('music.idlePlaylist', refs, 0);
-      renderIdlePlaylist();
+    function fmtHistoryFull(ts) {
+      if (!ts) return '';
+      const d = new Date(ts);
+      const p = (n) => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
     }
 
-    async function resolveIdlePlaylist() {
-      const input = document.getElementById('idlePlaylistRef');
-      const ref = input.value.trim();
-      const box = document.getElementById('idlePlaylistPreview');
-      if (!ref) return;
-      box.style.display = '';
-      box.innerHTML = '';
-      box.style.padding = '10px 12px';
-      const loading = document.createElement('div');
-      loading.style.cssText = 'font-size:12px; color:var(--th-text-muted);';
-      loading.textContent = '正在解析歌单…';
-      box.appendChild(loading);
+    function renderJukeboxHistory(records) {
+      const host = document.getElementById('jbHistoryList');
+      if (!host) return;
+      const list = records ?? [];
+      document.getElementById('jbHistoryCount').textContent = String(list.length);
+      host.innerHTML = '';
+      if (!list.length) {
+        const ph = document.createElement('div');
+        ph.style.cssText = 'color:var(--th-text-muted); font-size:12px; padding:12px; text-align:center;';
+        ph.textContent = vtuberI18n.t('jb.hEmpty');
+        host.appendChild(ph);
+        return;
+      }
+      for (const r of list) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:grid; grid-template-columns: 90px 90px 1.4fr 1fr 56px 64px 1fr 72px; gap:6px; align-items:center; padding:5px 8px; font-size:11px; border-bottom:1px solid var(--th-border-subtle); font-family:var(--font-mono);';
+        const meta = r.status ? HISTORY_STATUS_META[r.status] : null;
+        const statusHtml = meta
+          ? '<span style="color:' + meta.color + '; font-weight:700;">' + meta.text() + '</span>'
+          : '<span style="color:var(--th-accent);">▶ ' + vtuberI18n.t('jb.hPlaying') + '</span>';
+        row.innerHTML =
+          '<span style="color:var(--th-text-muted);" title="' + fmtHistoryFull(r.requestedAt) + '">' + fmtHistoryTime(r.requestedAt) + '</span>' +
+          '<span title="' + fmtHistoryFull(r.startedAt) + '">' + fmtHistoryTime(r.startedAt) + '</span>' +
+          '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + esc(r.title || '') + '">' + escapeHtml(r.title || '') + '</span>' +
+          '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeHtml(r.artist || '') + '</span>' +
+          '<span>' + deckFmt(r.duration || 0) + '</span>' +
+          statusHtml +
+          '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + escapeHtml(r.userName || '') + '</span>' +
+          '<span style="display:flex; gap:4px;"><button class="tac-btn tac-btn-sm" title="立即播放">▶</button><button class="tac-btn tac-btn-sm" title="加入待播">＋</button></span>';
+        const [playBtn, addBtn] = row.querySelectorAll('button');
+        playBtn.onclick = () => {
+          void vtuberRPC.call('jukebox.playNow', { songId: r.songId, source: r.source, userName: 'console' })
+            .then((res) => showToast(res.message, res.success ? 'success' : 'warn'))
+            .catch((e) => showToast(String(e.message || e), 'err'));
+        };
+        addBtn.onclick = () => {
+          void vtuberRPC.call('jukebox.add', { songId: r.songId, source: r.source, userId: 'console', userName: 'console' })
+            .then((res) => showToast(res.message, res.success ? 'success' : 'warn'))
+            .catch((e) => showToast(String(e.message || e), 'err'));
+        };
+        host.appendChild(row);
+      }
+    }
+
+    let jbHistoryLimit = 100;
+
+    async function refreshJukeboxHistory(reset) {
       try {
-        const res = await vtuberRPC.call('jukebox.playlist.resolve', { ref });
-        box.innerHTML = '';
-        if (!res.ok) {
-          const err = document.createElement('div');
-          err.style.cssText = 'font-size:12px; color:var(--th-error);';
-          err.textContent = res.error || '解析失败';
-          box.appendChild(err);
-          return;
+        if (reset) jbHistoryLimit = 100;
+        const res = await vtuberRPC.call('jukebox.history.list', { limit: jbHistoryLimit });
+        const records = res.records ?? [];
+        renderJukeboxHistory(records);
+        const host = document.getElementById('jbHistoryList');
+        if (host && records.length >= jbHistoryLimit) {
+          const more = document.createElement('button');
+          more.className = 'tac-btn tac-btn-sm';
+          more.style.cssText = 'margin:8px auto; display:block;';
+          more.textContent = '加载更多';
+          more.onclick = async () => { jbHistoryLimit += 100; await refreshJukeboxHistory(false); };
+          host.appendChild(more);
         }
-        idlePreview = res;
-        const head = document.createElement('div');
-        head.style.cssText = 'display:flex; align-items:center; gap:10px; margin-bottom:8px;';
-        const prov = document.createElement('span');
-        prov.style.cssText = 'font-size:11px; font-weight:700; color:var(--th-accent);';
-        prov.textContent = MUSIC_PROVIDER_NAMES[res.provider] || res.provider;
-        const count = document.createElement('span');
-        count.style.cssText = 'font-size:11px; color:var(--th-text-secondary);';
-        count.textContent = `共 ${res.count} 首`;
-        const spacer = document.createElement('span');
-        spacer.style.flex = '1';
-        const cancel = document.createElement('button');
-        cancel.className = 'tac-btn tac-btn-sm';
-        cancel.textContent = '取消';
-        cancel.onclick = () => { idlePreview = null; box.style.display = 'none'; };
-        const importBtn = document.createElement('button');
-        importBtn.className = 'tac-btn tac-btn-sm tac-btn-success';
-        importBtn.textContent = '✓ 全部导入';
-        importBtn.onclick = importIdlePlaylist;
-        head.appendChild(prov); head.appendChild(count); head.appendChild(spacer); head.appendChild(cancel); head.appendChild(importBtn);
-        box.appendChild(head);
-        const list = document.createElement('div');
-        list.style.cssText = 'display:flex; flex-direction:column; gap:2px; max-height:180px; overflow-y:auto; font-size:11px;';
-        (res.preview ?? []).forEach((p) => {
-          const line = document.createElement('div');
-          line.style.cssText = 'color:var(--th-text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
-          line.textContent = `${p.title} - ${p.artist}`;
-          list.appendChild(line);
-        });
-        if (res.count > (res.preview ?? []).length) {
-          const more = document.createElement('div');
-          more.style.cssText = 'color:var(--th-text-muted); font-size:10px;';
-          const previewLen = (res.preview ?? []).length;
-          more.textContent = `… 以及其余 ${res.count - previewLen} 首`;
-          list.appendChild(more);
-        }
-        box.appendChild(list);
-      } catch (e) {
-        box.innerHTML = '';
-        const err = document.createElement('div');
-        err.style.cssText = 'font-size:12px; color:var(--th-error);';
-        err.textContent = '解析失败: ' + (e.message || e);
-        box.appendChild(err);
-      }
+      } catch (e) { /* 面板未就绪时忽略 */ }
     }
 
-    function importIdlePlaylist() {
-      if (!idlePreview || !idlePreview.refs || !idlePreview.refs.length) return;
-      const existing = new Set(activeConfig.music.idlePlaylist ?? []);
-      const merged = [...existing];
-      let added = 0;
-      for (const r of idlePreview.refs) {
-        if (!existing.has(r)) { merged.push(r); added++; }
-      }
-      idlePreview = null;
-      document.getElementById('idlePlaylistPreview').style.display = 'none';
-      document.getElementById('idlePlaylistRef').value = '';
-      saveIdleRefs(merged);
-      showToast(`✅ 歌单已导入（新增 ${added} 首）`, 'success');
-    }
-
-    function addIdleManual() {
-      const source = document.getElementById('idleManualSource').value;
-      const ref = document.getElementById('idleManualRef').value.trim();
-      if (!ref) return;
-      const entry = /^[a-z0-9-]+:/.test(ref) ? ref : `${source}:${ref}`;
-      const existing = activeConfig.music.idlePlaylist ?? [];
-      if (existing.includes(entry)) { showToast('该曲目已在空闲歌单中', 'warn'); return; }
-      document.getElementById('idleManualRef').value = '';
-      saveIdleRefs([...existing, entry]);
-      showToast('✅ 已加入空闲歌单', 'success');
-    }
-
-    /** 搜索结果「＋歌单」：以 source:identifier 直接入空闲歌单 */
-    function addSongToIdle(identifier, source) {
-      const entry = `${source}:${identifier}`;
-      const existing = activeConfig.music.idlePlaylist ?? [];
-      if (existing.includes(entry)) { showToast('该曲目已在空闲歌单中', 'warn'); return; }
-      saveIdleRefs([...existing, entry]);
-      showToast('✅ 已加入空闲歌单', 'success');
-    }
-
-    function onIdleLoopToggle(checked) {
-      if (!activeConfig.music) activeConfig.music = {};
-      activeConfig.music.idleLoop = checked;
-      setToggleCardState('idleLoopStatus', 'idleLoopLed', checked);
-      savePathDebounced('music.idleLoop', checked, 0);
-    }
-
-    /** 卡片式开关状态同步（toggle-row 三件套） */
+    /** toggle-row 卡片状态同步（status 文本 + LED） */
     function setToggleCardState(statusId, ledId, on) {
       const status = document.getElementById(statusId);
       const led = document.getElementById(ledId);
@@ -3260,10 +3749,203 @@
       }
       if (led) led.className = 'toggle-row-led ' + (on ? 'active' : 'inactive');
     }
-    function onDirectOrderCardClick() {
-      if (!orderDraft) return;
-      onDirectOrderToggle(!orderDraft.enabled);
+
+    // ============ IDLE PLAYLIST · 空闲歌单（分组双栏） ============
+    let idlePreview = null; // jukebox.playlist.resolve 结果
+    let idleGroupsDetail = null; // jukebox.idle.resolve 的分组详情缓存
+    let idleSelected = Number(localStorage.getItem('jbIdleSelectedGroup') || '0');
+
+    function idleGroupsFromConfig() {
+      return (activeConfig?.music?.idlePlaylists ?? []).map((g) => ({
+        name: g?.name || '未命名歌单',
+        ref: g?.ref || '',
+        songs: (g?.songs ?? []).map(String),
+      }));
     }
+
+    function saveIdleGroups(groups) {
+      if (activeConfig?.music) activeConfig.music.idlePlaylists = JSON.parse(JSON.stringify(groups));
+      savePathDebounced('music.idlePlaylists', groups, 0);
+    }
+
+    async function renderIdlePlaylist() {
+      const listHost = document.getElementById('idlePlaylistList');
+      if (!listHost || !activeConfig) return;
+      const loopOn = Boolean(activeConfig.music && activeConfig.music.idleLoop);
+      setToggleCardState('idleLoopStatus', 'idleLoopLed', loopOn);
+      const groups = idleGroupsFromConfig();
+      const total = groups.reduce((acc, g) => acc + g.songs.length, 0);
+      const badge = document.getElementById('idleCountBadge');
+      if (badge) badge.textContent = total + (vtuberI18n.locale === 'zh' ? ' 首' : ' songs');
+      if (idleSelected >= groups.length) idleSelected = 0;
+      listHost.innerHTML = '';
+      groups.forEach((g, gi) => {
+        const active = gi === idleSelected;
+        const row = document.createElement('div');
+        row.className = 'toggle-row';
+        row.style.cursor = 'pointer';
+        row.style.borderColor = active ? 'var(--th-accent)' : '';
+        row.innerHTML =
+          '<div class="toggle-row-left"><div class="toggle-row-title">' + escapeHtml(g.name) + '</div>' +
+          '<div class="toggle-row-desc">' + g.songs.length + (vtuberI18n.locale === 'zh' ? ' 首' : ' songs') + (g.ref ? ' · ' + escapeHtml(g.ref.slice(0, 40)) : '') + '</div></div>' +
+          '<div class="toggle-row-right"><button class="tac-btn tac-btn-sm tac-btn-danger" title="删除歌单">✕</button></div>';
+        row.onclick = (ev) => {
+          if (ev.target.closest('button')) return;
+          idleSelected = gi;
+          localStorage.setItem('jbIdleSelectedGroup', String(gi));
+          renderIdlePlaylist();
+          void renderIdleDetail();
+        };
+        row.querySelector('button').onclick = () => {
+          const next = idleGroupsFromConfig();
+          next.splice(gi, 1);
+          saveIdleGroups(next);
+          if (idleSelected >= next.length) idleSelected = Math.max(0, next.length - 1);
+          renderIdlePlaylist();
+          void renderIdleDetail();
+        };
+        listHost.appendChild(row);
+      });
+      if (!groups.length) {
+        const ph = document.createElement('div');
+        ph.style.cssText = 'color:var(--th-text-muted); font-size:12px; padding:10px; text-align:center;';
+        ph.textContent = vtuberI18n.t('jb.idleNoGroup');
+        listHost.appendChild(ph);
+      }
+      void renderIdleDetail();
+    }
+
+    /** 右栏：选中分组的歌曲详情（idle.resolve 缓存，懒加载一次） */
+    async function renderIdleDetail() {
+      const host = document.getElementById('jbIdleDetailList');
+      const titleEl = document.getElementById('jbIdleDetailTitle');
+      const countEl = document.getElementById('jbIdleDetailCount');
+      if (!host) return;
+      const groups = idleGroupsFromConfig();
+      if (!groups.length) {
+        titleEl.textContent = '—';
+        countEl.textContent = '0';
+        host.innerHTML = '<div style="color:var(--th-text-muted); font-size:12px; padding:14px; text-align:center;">' + vtuberI18n.t('jb.idleNoGroup') + '</div>';
+        return;
+      }
+      const sel = Math.min(idleSelected, groups.length - 1);
+      titleEl.textContent = groups[sel].name;
+      if (!idleGroupsDetail || idleGroupsDetail.length !== groups.length) {
+        host.innerHTML = '<div style="color:var(--th-text-muted); font-size:12px; padding:14px; text-align:center;">…</div>';
+        try {
+          const res = await vtuberRPC.call('jukebox.idle.resolve', {}, 30000);
+          idleGroupsDetail = res.groups ?? [];
+        } catch (e) {
+          idleGroupsDetail = groups.map((g) => ({ name: g.name, ref: g.ref, songs: g.songs.map((r) => ({ ref: r, ok: false })) }));
+        }
+      }
+      const detail = idleGroupsDetail[sel] ?? { songs: [] };
+      const songs = detail.songs ?? [];
+      countEl.textContent = String(songs.length);
+      host.innerHTML = '';
+      if (!songs.length) {
+        const ph = document.createElement('div');
+        ph.style.cssText = 'color:var(--th-text-muted); font-size:12px; padding:14px; text-align:center;';
+        ph.textContent = vtuberI18n.t('jb.idleGroupEmpty');
+        host.appendChild(ph);
+        return;
+      }
+      songs.forEach((s, si) => {
+        const row = document.createElement('div');
+        row.className = 'toggle-row';
+        row.style.cursor = 'default';
+        row.style.padding = '6px 10px';
+        const main = s.ok
+          ? escapeHtml(s.title || s.ref) + ' - ' + escapeHtml(s.artist || '?')
+          : '<span style="color:var(--th-warning);">' + escapeHtml(s.ref) + '</span>';
+        const dur = s.ok && s.duration ? Math.floor(s.duration / 60) + ':' + String(Math.floor(s.duration % 60)).padStart(2, '0') : '';
+        row.innerHTML =
+          '<div class="toggle-row-left"><div class="toggle-row-title" style="font-size:12px;">' + (si + 1) + '. ' + main + '</div></div>' +
+          '<div class="toggle-row-right"><span style="font-family:var(--font-mono); font-size:10px; color:var(--th-text-muted);">' + dur + '</span>' +
+          '<button class="tac-btn tac-btn-sm" title="立即播放">▶</button>' +
+          '<button class="tac-btn tac-btn-sm" title="加入待播">＋</button></div>';
+        const [playBtn, addBtn] = row.querySelectorAll('button');
+        const call = (method, extra) => {
+          void vtuberRPC.call(method, Object.assign({ songId: s.ref.split(':').slice(1).join(':'), source: s.ref.split(':')[0] }, extra))
+            .then((r) => showToast(r.message, r.success ? 'success' : 'warn'))
+            .catch((e) => showToast(String(e.message || e), 'err'));
+        };
+        playBtn.onclick = () => call('jukebox.playNow', { userName: 'console' });
+        addBtn.onclick = () => call('jukebox.add', { userId: 'console', userName: 'console' });
+        const delBtn = document.createElement('button');
+        delBtn.className = 'tac-btn tac-btn-sm tac-btn-danger';
+        delBtn.title = '从歌单移除';
+        delBtn.textContent = '✕';
+        delBtn.onclick = () => {
+          const groups = idleGroupsFromConfig();
+          const target = groups[Math.min(idleSelected, groups.length - 1)];
+          if (target) { target.songs.splice(si, 1); idleGroupsDetail = null; saveIdleGroups(groups); renderIdlePlaylist(); }
+        };
+        row.querySelector('.toggle-row-right').appendChild(delBtn);
+        host.appendChild(row);
+      });
+    }
+
+    async function resolveIdlePlaylist() {
+      const input = document.getElementById('idlePlaylistRef');
+      const previewBox = document.getElementById('idlePlaylistPreview');
+      const ref = (input?.value || '').trim();
+      if (!ref) { showToast('请先粘贴歌单链接或 ID', 'warn'); return }
+      previewBox.style.display = '';
+      previewBox.innerHTML = '<div style="font-size:12px; color:var(--th-text-muted); padding:8px;">解析中…</div>';
+      try {
+        const res = await vtuberRPC.call('jukebox.playlist.resolve', { ref }, 30000);
+        if (!res.ok) throw new Error(res.error || '解析失败');
+        idlePreview = res;
+        const providerName = MUSIC_PROVIDER_NAMES[res.provider] || res.provider;
+        previewBox.innerHTML =
+          '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 10px;">' +
+          '<span style="font-size:12px;"><span class="tac-badge tac-badge-accent">' + providerName + '</span> 共 ' + res.count + ' 首</span>' +
+          '<button class="tac-btn tac-btn-sm tac-btn-success" id="idleImportBtn">导入为新歌单</button></div>';
+        document.getElementById('idleImportBtn').onclick = () => importIdlePlaylist(providerName);
+      } catch (e) {
+        previewBox.innerHTML = '<div style="font-size:12px; color:var(--th-error); padding:8px;">解析失败: ' + escapeHtml(String(e.message || e)) + '</div>';
+      }
+    }
+
+    function importIdlePlaylist(providerName) {
+      if (!idlePreview?.refs?.length) return;
+      const groups = idleGroupsFromConfig();
+      groups.push({
+        name: (providerName || '导入') + '歌单 · ' + idlePreview.refs.length + '首',
+        ref: (document.getElementById('idlePlaylistRef')?.value || '').trim().slice(0, 120),
+        songs: idlePreview.refs,
+      });
+      idleSelected = groups.length - 1;
+      localStorage.setItem('jbIdleSelectedGroup', String(idleSelected));
+      idleGroupsDetail = null; // 重新解析
+      saveIdleGroups(groups);
+      document.getElementById('idlePlaylistRef').value = '';
+      document.getElementById('idlePlaylistPreview').style.display = 'none';
+      showToast('已导入歌单（' + idlePreview.refs.length + ' 首）', 'success');
+      renderIdlePlaylist();
+    }
+
+    function addSongToIdle(source, identifier) {
+      const groups = idleGroupsFromConfig();
+      if (!groups.length) {
+        groups.push({ name: '手动收录', ref: '', songs: [] });
+        idleGroupsDetail = null;
+      }
+      const target = groups[Math.min(idleSelected, groups.length - 1)];
+      target.songs.push(source + ':' + identifier);
+      idleGroupsDetail = null;
+      saveIdleGroups(groups);
+      showToast('已加入空闲歌单：' + target.name, 'success');
+      if (document.getElementById('idlePlaylistList')) renderIdlePlaylist();
+    }
+
+    function onIdleLoopToggle(on) {
+      if (activeConfig?.music) activeConfig.music.idleLoop = on;
+      savePathDebounced('music.idleLoop', on, 0);
+      setToggleCardState('idleLoopStatus', 'idleLoopLed', on);
+    }
+
     function onIdleLoopCardClick() {
       onIdleLoopToggle(!Boolean(activeConfig && activeConfig.music && activeConfig.music.idleLoop));
     }
@@ -3290,48 +3972,115 @@
       }
       host.innerHTML = '';
       npOutputsDraft.forEach((o, i) => host.appendChild(buildNpOutputCard(o, i)));
-      const chips = document.getElementById('npVarChips');
-      if (chips) {
-        chips.innerHTML = '';
+      const grid = document.getElementById('npVarChips');
+      if (grid) {
+        grid.innerHTML = '';
         NP_TEMPLATE_VARS.forEach(([v, desc]) => {
+          const box = document.createElement('div');
+          box.style.cssText = 'border:1px solid var(--th-border-subtle); border-radius:2px; padding:6px 8px; display:flex; flex-direction:column; gap:3px; background:var(--th-bg-input);';
           const chip = document.createElement('span');
           chip.className = 'var-chip';
-          chip.title = desc;
+          chip.style.alignSelf = 'flex-start';
           chip.textContent = '{{' + v + '}}';
           chip.onclick = () => insertNpVar(v);
-          chips.appendChild(chip);
+          const d = document.createElement('span');
+          d.style.cssText = 'font-size:11px; color:var(--th-text-muted); line-height:1.4;';
+          d.textContent = desc;
+          if (v === 'queue') {
+            // {{queue}} 芯片右侧附编辑键：打开元素格式编辑模态框
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex; align-items:center; gap:6px; flex-wrap:wrap;';
+            row.appendChild(chip);
+            const edit = document.createElement('button');
+            edit.className = 'tac-btn tac-btn-sm';
+            edit.style.cssText = 'flex-shrink:0; padding:2px 8px; font-size:10px;';
+            edit.textContent = '✎ ' + vtuberI18n.t('cfg.queueTplEdit');
+            edit.title = vtuberI18n.t('cfg.queueTplTitle');
+            edit.onclick = (ev) => { ev.stopPropagation(); openQueueTplModal(); };
+            row.appendChild(edit);
+            box.appendChild(row);
+          } else {
+            box.appendChild(chip);
+          }
+          box.appendChild(d);
+          grid.appendChild(box);
         });
       }
+    }
+
+    /** textarea 高度自适应内容（最小约 2 行） */
+    function npAutoResize(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.max(46, el.scrollHeight + 4) + 'px';
     }
 
     function buildNpOutputCard(o, i) {
       const card = document.createElement('div');
       card.className = 'tactical-panel-elevated';
       card.style.cssText = 'padding:10px 12px; display:flex; flex-direction:column; gap:8px;';
+      // 头部（常显）：折叠钮 + 文件名 + 模板首行预览（折叠时）+ 删除
       const head = document.createElement('div');
       head.style.cssText = 'display:flex; gap:8px; align-items:center;';
+      const toggle = document.createElement('button');
+      toggle.className = 'tac-btn tac-btn-sm';
+      toggle.style.flexShrink = '0';
+      toggle.title = '展开/折叠';
       const fileInput = document.createElement('input');
       fileInput.className = 'tac-input';
-      fileInput.style.cssText = 'flex:1; font-family:var(--font-mono);';
+      fileInput.style.cssText = 'flex:1; min-width:0; font-family:var(--font-mono);';
       fileInput.value = o.file;
       fileInput.placeholder = '文件名（如 nowplaying.txt），统一保存至 backend/data/music_info/';
       fileInput.oninput = () => { o.file = fileInput.value.trim(); saveNpOutputs(); };
+      const preview = document.createElement('span');
+      preview.style.cssText = 'flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--font-mono); font-size:11px; color:var(--th-text-muted);';
+      const syncPreview = () => {
+        const text = (o.template || '').replace(/\s+/g, ' ').trim();
+        preview.textContent = text ? text.slice(0, 60) + (text.length > 60 ? '…' : '') : '（空模板）';
+      };
+      syncPreview();
       const del = document.createElement('button');
       del.className = 'tac-btn tac-btn-sm tac-btn-danger';
       del.textContent = '✕ 删除';
       del.style.flexShrink = '0';
-      del.onclick = () => { npOutputsDraft.splice(i, 1); saveNpOutputs(true); renderNowPlayingOutputs(false); };
-      head.appendChild(fileInput);
-      head.appendChild(del);
+      del.onclick = () => {
+        // 先删 data/music_info 下的落盘文件（仅清配置会留孤儿文件），再移除配置条目
+        const fname = (o.file || '').trim();
+        if (fname) {
+          vtuberRPC.call('jukebox.nowPlaying.removeOutput', { file: fname })
+            .then((res) => { if (!res.success) showToast(res.message || '输出文件删除失败', 'warn') })
+            .catch((e) => showToast('输出文件删除失败: ' + (e.message || e), 'warn'));
+        }
+        npOutputsDraft.splice(i, 1); saveNpOutputs(true); renderNowPlayingOutputs(false);
+      };
+      // 编辑区（可折叠）：自适应高度的模板 textarea
+      const editor = document.createElement('div');
+      editor.style.cssText = 'display:flex; flex-direction:column;';
       const tpl = document.createElement('textarea');
       tpl.className = 'tac-textarea';
-      tpl.rows = 2;
       tpl.value = o.template;
       tpl.placeholder = '模板，如 🎵 {{title}} - {{artist}} ({{remaining}}) ｜ {{lyric}}';
-      tpl.oninput = () => { o.template = tpl.value; saveNpOutputs(); };
+      tpl.oninput = () => { o.template = tpl.value; syncPreview(); saveNpOutputs(); npAutoResize(tpl); };
       tpl.onfocus = () => { npLastFocusedTpl = tpl; };
+      editor.appendChild(tpl);
+      const applyState = (expanded) => {
+        toggle.textContent = expanded ? '▼' : '▶';
+        editor.style.display = expanded ? 'flex' : 'none';
+        preview.style.display = expanded ? 'none' : '';
+        if (expanded) npAutoResize(tpl);
+      };
+      toggle.onclick = () => {
+        const expanded = editor.style.display === 'none';
+        o._expanded = expanded;
+        applyState(expanded);
+      };
+      // 优先读草稿中的 _expanded 标记（防重建丢状态）；无标记时空模板展开、已配置折叠
+      applyState(o._expanded !== undefined ? o._expanded : (o.template || '').trim() === '');
+      head.appendChild(toggle);
+      head.appendChild(fileInput);
+      head.appendChild(preview);
+      head.appendChild(del);
       card.appendChild(head);
-      card.appendChild(tpl);
+      card.appendChild(editor);
       return card;
     }
 
@@ -3366,9 +4115,86 @@
       el.selectionStart = el.selectionEnd = s + token.length;
     }
 
+    // ===== {{queue}} 元素格式编辑模态框 =====
+    const QUEUE_TPL_DEFAULT = '{{index}}. {{title}} - {{artist}}';
+    const QUEUE_TPL_VARS = [
+      ['index', '序号'], ['title', '歌名'], ['artist', '歌手'], ['duration', '时长 m:ss'],
+      ['durationSec', '时长（秒）'], ['user', '点歌人'], ['source', '音源'], ['songId', '歌曲 ID'], ['cover', '封面 URL'],
+    ];
+
+    /** 前端镜像后端 renderTemplate（预览用）：未知变量原样保留 */
+    function npRenderTpl(tpl, vars) {
+      return String(tpl || '').replace(/\{\{\s*(\w+)\s*\}\}/g, (m, k) => (k in vars ? vars[k] : m));
+    }
+
+    /** 前端镜像后端包裹解包：单独成行的 {{ / }} 包裹时内容原样保留（换行为有意行为） */
+    function npUnwrapQueueTpl(raw) {
+      const m = String(raw || '').match(/^\{\{[ \t]*\r?\n([\s\S]*)\r?\n[ \t]*\}\}[ \t]*$/);
+      return m ? m[1] : null;
+    }
+
+    function updateQueueTplPreview() {
+      const input = document.getElementById('queueTplInput');
+      const preview = document.getElementById('queueTplPreview');
+      if (!input || !preview) return;
+      const unwrapped = npUnwrapQueueTpl(input.value);
+      const tpl = unwrapped !== null ? unwrapped : (input.value.trim() || QUEUE_TPL_DEFAULT);
+      const samples = [
+        { index: '1', title: '晴天', artist: '周杰伦', duration: '4:29', durationSec: '269', user: '小明', source: 'kuwo', songId: '97773', cover: 'https://example.com/1.jpg' },
+        { index: '2', title: 'アイドル', artist: 'YOASOBI', duration: '3:33', durationSec: '213', user: 'console', source: 'netease', songId: '2037301234', cover: 'https://example.com/2.jpg' },
+      ];
+      preview.textContent = samples.map((s) => npRenderTpl(tpl, s)).join('\n');
+    }
+
+    function insertQueueTplVar(v) {
+      const el = document.getElementById('queueTplInput');
+      const s = el.selectionStart == null ? el.value.length : el.selectionStart;
+      const e2 = el.selectionEnd == null ? s : el.selectionEnd;
+      const token = '{{' + v + '}}';
+      el.value = el.value.slice(0, s) + token + el.value.slice(e2);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.focus();
+      el.selectionStart = el.selectionEnd = s + token.length;
+    }
+
+    function openQueueTplModal() {
+      const cfg = (activeConfig && activeConfig.music && activeConfig.music.nowPlaying) || {};
+      const input = document.getElementById('queueTplInput');
+      input.value = cfg.queueItemTemplate || QUEUE_TPL_DEFAULT;
+      input.oninput = () => {
+        if (activeConfig && activeConfig.music && activeConfig.music.nowPlaying) {
+          activeConfig.music.nowPlaying.queueItemTemplate = input.value;
+        }
+        savePathDebounced('music.nowPlaying.queueItemTemplate', input.value, 400);
+        updateQueueTplPreview();
+      };
+      const varsHost = document.getElementById('queueTplVars');
+      varsHost.innerHTML = '';
+      QUEUE_TPL_VARS.forEach(([v, desc]) => {
+        const chip = document.createElement('span');
+        chip.className = 'var-chip';
+        chip.textContent = '{{' + v + '}}';
+        chip.title = desc;
+        chip.onclick = () => insertQueueTplVar(v);
+        varsHost.appendChild(chip);
+      });
+      document.getElementById('queueTplResetBtn').onclick = () => {
+        input.value = QUEUE_TPL_DEFAULT;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.focus();
+      };
+      updateQueueTplPreview();
+      document.getElementById('queueTplModal').classList.add('open');
+      setTimeout(() => { input.focus(); npAutoResize(input); }, 60);
+    }
+
+    function closeQueueTplModal() {
+      document.getElementById('queueTplModal').classList.remove('open');
+    }
+
     function renderCfgField(path, meta, value) {
       const wrap = document.createElement('div');
-      const isSpan2 = meta.type === 'json' || meta.type === 'triggers' || meta.type === 'object' || meta.multiline
+      const isSpan2 = meta.type === 'json' || meta.type === 'kv' || meta.type === 'output' || meta.type === 'npOutputs' || meta.type === 'directOrderCard' || meta.type === 'triggers' || meta.type === 'object' || meta.multiline
         || meta.control === 'stringList' || meta.control === 'channelCommands';
       wrap.className = 'cfg-field' + (isSpan2 ? ' span-2' : '');
       wrap.dataset.path = path;
@@ -3377,7 +4203,9 @@
       const label = document.createElement('label');
       label.className = 'cfg-field-label';
       label.textContent = meta.label || path;
-      if (meta.type !== 'boolean') wrap.appendChild(label);
+      // 自定义卡片类型自带完整标题头（section-header），跳过外层 label 避免双层标题
+      const selfTitled = meta.type === 'directOrderCard' || meta.type === 'npOutputs' || meta.type === 'output' || meta.type === 'font';
+      if (meta.type !== 'boolean' && !selfTitled) wrap.appendChild(label);
 
       if (meta.control === 'stringList') {
         renderStringListControl(wrap, path, value);
@@ -3493,6 +4321,16 @@
         ta.value = JSON.stringify(value ?? meta.default ?? {}, null, 2);
         bindAutoSaveText(ta, path, meta);
         wrap.appendChild(ta);
+      } else if (meta.type === 'npOutputs') {
+        wrap.appendChild(renderCfgNpOutputs());
+      } else if (meta.type === 'directOrderCard') {
+        wrap.appendChild(renderCfgDirectOrderCard());
+      } else if (meta.type === 'output') {
+        wrap.appendChild(renderCfgOutputPanel(path, meta));
+      } else if (meta.type === 'font') {
+        wrap.appendChild(renderCfgFontControl(path, meta));
+      } else if (meta.type === 'kv') {
+        wrap.appendChild(renderCfgKvControl(path, meta, value));
       } else if (meta.type === 'object') {
         wrap.appendChild(renderCfgObjectMatrix(path, meta, value));
       } else if (meta.type === 'triggers') {
@@ -3901,6 +4739,380 @@
       });
     }
 
+    // ===== 点歌指令配置卡（配置中心 directOrderCard 字段，复原原版样式） =====
+    // 折叠收敛到渠道级（renderChannelCommandsControl），整卡不再折叠
+
+    function renderCfgDirectOrderCard() {
+      const box = document.createElement('div');
+      box.className = 'tactical-panel hud-corner-brackets';
+      box.style.cssText = 'padding:0; display:flex; flex-direction:column;';
+      if (!activeConfig.music) activeConfig.music = {};
+      if (!activeConfig.music.directOrder) activeConfig.music.directOrder = { enabled: false, keywords: [], channelCommands: {} };
+      const doCfg = activeConfig.music.directOrder;
+      if (!Array.isArray(doCfg.keywords)) doCfg.keywords = [];
+      if (!doCfg.channelCommands || typeof doCfg.channelCommands !== 'object') doCfg.channelCommands = {};
+      if (!activeConfig.music.skipCommand) activeConfig.music.skipCommand = { enabled: false, keywords: ['切歌'], selfOnly: true };
+      const skCfg = activeConfig.music.skipCommand;
+      if (!Array.isArray(skCfg.keywords)) skCfg.keywords = [];
+      if (typeof skCfg.selfOnly !== 'boolean') skCfg.selfOnly = true;
+
+      // header：纯展示标题
+      const header = document.createElement('div');
+      header.className = 'section-header';
+      header.style.padding = '14px 16px';
+      header.innerHTML = '<span class="section-title"><svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-terminal"/></svg><span>' + escapeHtml(vtuberI18n.t('jb.orderCommands')) + '</span></span>';
+
+      const body = document.createElement('div');
+      body.style.cssText = 'padding:16px; display:flex; flex-direction:column; gap:14px;';
+      box.append(header, body);
+
+      // 直接点歌总开关（toggle-row）
+      const toggle = document.createElement('div');
+      toggle.className = 'toggle-row';
+      toggle.style.cursor = 'pointer';
+      const syncToggle = () => {
+        const on = doCfg.enabled;
+        toggle.innerHTML =
+          '<div class="toggle-row-left"><div class="toggle-row-title">' + escapeHtml(vtuberI18n.t('jb.directOrder')) + '</div>' +
+          '<div class="toggle-row-desc">' + escapeHtml(vtuberI18n.t('jb.directOrderDesc')) + '</div></div>' +
+          '<div class="toggle-row-right"><span class="toggle-row-status ' + (on ? 'active' : 'inactive') + '">' + (on ? 'ENABLED' : 'DISABLED') + '</span>' +
+          '<div class="toggle-row-led ' + (on ? 'active' : 'inactive') + '"></div></div>';
+      };
+      syncToggle();
+      toggle.onclick = () => {
+        doCfg.enabled = !doCfg.enabled;
+        savePathDebounced('music.directOrder.enabled', doCfg.enabled, 0);
+        syncToggle();
+      };
+      body.appendChild(toggle);
+
+      // 通用触发词（复用原版 renderStringListControl：即改即存 + 聚焦）
+      const kwLabel = document.createElement('div');
+      kwLabel.className = 'param-slider-label';
+      kwLabel.style.margin = '0';
+      kwLabel.textContent = vtuberI18n.t('jb.genericKeywords');
+      const kwHost = document.createElement('div');
+      body.append(kwLabel, kwHost);
+      renderStringListControl(kwHost, 'music.directOrder.keywords', doCfg.keywords, {
+        addLabel: vtuberI18n.t('jb.addKeyword'),
+        placeholder: '指令文本（如：点歌）',
+      });
+
+      // 渠道触发词（复用原版 renderChannelCommandsControl：品牌名 + 去重 + 聚焦）
+      const chLabel = document.createElement('div');
+      chLabel.className = 'param-slider-label';
+      chLabel.style.margin = '0';
+      chLabel.textContent = vtuberI18n.t('jb.channelKeywords') || '渠道触发词';
+      const chHost = document.createElement('div');
+      body.append(chLabel, chHost);
+      renderChannelCommandsControl(chHost, 'music.directOrder.channelCommands', doCfg.channelCommands);
+
+      // ===== 切歌指令（Ayna 风格：整条弹幕精确匹配触发词即跳过当前曲目） =====
+      const divider = document.createElement('div');
+      divider.style.cssText = 'border-top:1px solid var(--th-border-subtle); margin-top:4px;';
+      body.appendChild(divider);
+
+      const skipTitle = document.createElement('div');
+      skipTitle.className = 'param-slider-label';
+      skipTitle.style.margin = '0';
+      skipTitle.textContent = vtuberI18n.t('jb.skipCommand');
+      body.appendChild(skipTitle);
+
+      // toggle-row 工厂：title/desc + ENABLED/DISABLED 状态 + LED（样式同点歌总开关）
+      const makeToggleRow = (titleKey, descKey, getPath, isOn, onFlip) => {
+        const row = document.createElement('div');
+        row.className = 'toggle-row';
+        row.style.cursor = 'pointer';
+        const sync = () => {
+          const on = isOn();
+          row.innerHTML =
+            '<div class="toggle-row-left"><div class="toggle-row-title">' + escapeHtml(vtuberI18n.t(titleKey)) + '</div>' +
+            '<div class="toggle-row-desc">' + escapeHtml(vtuberI18n.t(descKey)) + '</div></div>' +
+            '<div class="toggle-row-right"><span class="toggle-row-status ' + (on ? 'active' : 'inactive') + '">' + (on ? 'ENABLED' : 'DISABLED') + '</span>' +
+            '<div class="toggle-row-led ' + (on ? 'active' : 'inactive') + '"></div></div>';
+        };
+        sync();
+        row.onclick = () => { onFlip(); savePathDebounced(getPath, isOn(), 0); sync(); };
+        return row;
+      };
+
+      body.appendChild(makeToggleRow('jb.skipEnable', 'jb.skipCommandDesc', 'music.skipCommand.enabled',
+        () => skCfg.enabled, () => { skCfg.enabled = !skCfg.enabled; }));
+
+      // 切歌触发词（复用 renderStringListControl：即改即存 + 聚焦）
+      const skKwLabel = document.createElement('div');
+      skKwLabel.className = 'param-slider-label';
+      skKwLabel.style.margin = '0';
+      skKwLabel.textContent = vtuberI18n.t('jb.skipKeywords');
+      const skKwHost = document.createElement('div');
+      body.append(skKwLabel, skKwHost);
+      renderStringListControl(skKwHost, 'music.skipCommand.keywords', skCfg.keywords, {
+        addLabel: vtuberI18n.t('jb.addKeyword'),
+        placeholder: '指令文本（如：切歌）',
+      });
+
+      body.appendChild(makeToggleRow('jb.skipSelfOnly', 'jb.skipSelfOnlyDesc', 'music.skipCommand.selfOnly',
+        () => skCfg.selfOnly, () => { skCfg.selfOnly = !skCfg.selfOnly; }));
+
+      // 底部说明
+      const note = document.createElement('div');
+      note.style.cssText = 'font-size:11px; color:var(--th-text-muted);';
+      note.textContent = '弹幕以触发词开头即点歌（余下文字为歌名）；渠道触发词固定用对应音源检索，与通用触发词按最长前缀匹配。切歌指令为整条弹幕精确匹配：开启「仅限点歌人」后观众只能切自己点的歌，空闲歌单曲目不受限。';
+      body.appendChild(note);
+
+      return box;
+    }
+
+    // ===== 歌曲信息文本输出编辑器（配置中心 npOutputs 字段，自管即存） =====
+    function renderCfgNpOutputs() {
+      const box = document.createElement('div');
+      box.className = 'tactical-panel hud-corner-brackets';
+      box.style.cssText = 'padding:0; display:flex; flex-direction:column;';
+      const header = document.createElement('div');
+      header.className = 'section-header';
+      header.style.padding = '14px 16px';
+      header.innerHTML = '<span class="section-title"><svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-layers"/></svg><span>' + escapeHtml(vtuberI18n.t('jb.nowPlayingOutputs')) + '</span></span>';
+      const body = document.createElement('div');
+      body.style.cssText = 'padding:16px; display:flex; flex-direction:column; gap:12px;';
+      box.append(header, body);
+      const headRow = document.createElement('div');
+      headRow.style.cssText = 'display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;';
+      const dir = document.createElement('span');
+      dir.style.cssText = 'font-size:11px; color:var(--th-text-muted); font-family:var(--font-mono);';
+      dir.textContent = vtuberI18n.t('jb.outputDir');
+      const addBtn = document.createElement('button');
+      addBtn.className = 'tac-btn tac-btn-sm tac-btn-primary btn-lamp';
+      addBtn.textContent = vtuberI18n.t('jb.addOutput');
+      addBtn.onclick = () => addNowPlayingOutput();
+      headRow.append(dir, addBtn);
+      const listHost = document.createElement('div');
+      listHost.id = 'npOutputsList';
+      listHost.style.cssText = 'display:flex; flex-direction:column; gap:12px;';
+      const varPanel = document.createElement('details');
+      varPanel.className = 'tactical-panel-elevated';
+      varPanel.style.padding = '10px 12px';
+      varPanel.open = true;
+      const summary = document.createElement('summary');
+      summary.style.cssText = 'cursor:pointer; font-size:11px; color:var(--th-text-muted); font-family:var(--font-mono); font-weight:700;';
+      summary.textContent = vtuberI18n.t('jb.availableVars');
+      const varGrid = document.createElement('div');
+      varGrid.id = 'npVarChips';
+      varGrid.style.cssText = 'display:grid; grid-template-columns:repeat(auto-fill, minmax(200px,1fr)); gap:6px; margin-top:8px;';
+      varPanel.append(summary, varGrid);
+      body.append(headRow, listHost, varPanel);
+      // 延后到挂载后渲染：box 尚未 append 进 document，getElementById 找不到宿主
+      requestAnimationFrame(() => renderNowPlayingOutputs(true));
+      return box;
+    }
+
+    // ===== 输出策略双栏面板（左：三开关+字体加载；右：四个参数项） =====
+    function renderCfgOutputPanel(path, meta) {
+      const box = document.createElement('div');
+      box.style.cssText = 'display:flex; gap:16px; flex-wrap:wrap;';
+      const left = document.createElement('div');
+      left.style.cssText = 'flex:1; min-width:260px; display:flex; flex-direction:column; gap:10px;';
+      const right = document.createElement('div');
+      right.style.cssText = 'flex:1; min-width:220px; display:flex; flex-direction:column; gap:10px;';
+
+      // 左栏：三个输出开关（黑底蓝字 ↔ 蓝底发光黑字）
+      for (const sw of [
+        { path: 'output.danmaku.enabled', label: '发送弹幕' },
+        { path: 'output.display.enabled', label: '渲染到展示板' },
+        { path: 'output.tts.enabled', label: 'TTS 语音朗读' },
+      ]) {
+        const initial = Boolean(getByPath(activeConfig, sw.path));
+        const row = document.createElement('div');
+        row.className = 'out-switch' + (initial ? ' on' : '');
+        row.innerHTML = '<span class="out-switch-title">' + escapeHtml(sw.label) + '</span>' +
+          '<span class="out-switch-state">' + (initial ? 'ON' : 'OFF') + '</span>';
+        row.onclick = () => {
+          const on = !row.classList.contains('on');
+          row.classList.toggle('on', on);
+          row.querySelector('.out-switch-state').textContent = on ? 'ON' : 'OFF';
+          savePathDebounced(sw.path, on, 0);
+        };
+        left.appendChild(row);
+      }
+
+      // 左栏末：字体加载
+      const fontLabel = document.createElement('label');
+      fontLabel.className = 'cfg-field-label';
+      fontLabel.textContent = '展示板字体';
+      const fontDesc = document.createElement('div');
+      fontDesc.className = 'cfg-field-desc';
+      fontDesc.textContent = '上传 woff2 / woff / ttf / otf 字体文件，保存后展示板即时生效';
+      const fontHost = document.createElement('div');
+      fontHost.style.marginTop = '4px';
+      fontHost.appendChild(renderCfgFontControl('output.display.font', {}));
+      left.appendChild(fontLabel);
+      left.appendChild(fontHost);
+      left.appendChild(fontDesc);
+
+      // 右栏：四个参数项
+      for (const p of [
+        { path: 'output.danmaku.ratePerMinute', label: '弹幕频率上限(条/分)', kind: 'number', min: 1 },
+        { path: 'output.display.fontSize', label: '展示板字号(px)', kind: 'number', min: 10, max: 96 },
+        { path: 'output.display.style', label: '展示板样式', kind: 'select', options: [['bubble', '气泡'], ['subtitle', '字幕'], ['markdown', 'Markdown']] },
+        { path: 'output.tts.delayBeforeSpeakMs', label: '语音前停顿(ms)', kind: 'number', min: 0 },
+      ]) {
+        const wrap = document.createElement('div');
+        wrap.className = 'cfg-field';
+        const lab = document.createElement('label');
+        lab.className = 'cfg-field-label';
+        lab.textContent = p.label;
+        wrap.appendChild(lab);
+        if (p.kind === 'select') {
+          const sel = document.createElement('select');
+          sel.className = 'tac-select';
+          for (const [v, l] of p.options) {
+            const o = document.createElement('option');
+            o.value = v;
+            o.textContent = l;
+            sel.appendChild(o);
+          }
+          sel.value = getByPath(activeConfig, p.path) ?? 'bubble';
+          sel.onchange = () => savePathDebounced(p.path, sel.value, 0);
+          wrap.appendChild(sel);
+        } else {
+          const input = document.createElement('input');
+          input.type = 'number';
+          input.className = 'tac-input no-spin';
+          if (p.min !== undefined) input.min = p.min;
+          if (p.max !== undefined) input.max = p.max;
+          input.value = getByPath(activeConfig, p.path) ?? '';
+          input.oninput = () => {
+            const n = Number(input.value);
+            if (Number.isFinite(n) && n > 0) savePathDebounced(p.path, n, 300);
+          };
+          wrap.appendChild(input);
+        }
+        right.appendChild(wrap);
+      }
+
+      box.append(left, right);
+      return box;
+    }
+
+    // ===== 字体上传控件（展示板自定义字体，即时保存自管） =====
+    function renderCfgFontControl(path, meta) {
+      const box = document.createElement('div');
+      box.style.cssText = 'display:flex; gap:8px; align-items:center; flex-wrap:wrap;';
+      const nameEl = document.createElement('span');
+      nameEl.id = fid(path);
+      nameEl.style.cssText = 'font-family:var(--font-mono); font-size:12px; color:var(--th-accent); flex:1; min-width:140px;';
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.woff2,.woff,.ttf,.otf';
+      fileInput.style.display = 'none';
+      const uploadBtn = document.createElement('button');
+      uploadBtn.className = 'tac-btn tac-btn-sm';
+      uploadBtn.textContent = vtuberI18n.t('cfg.fontUpload');
+      const clearBtn = document.createElement('button');
+      clearBtn.className = 'tac-btn tac-btn-sm tac-btn-danger';
+      clearBtn.textContent = vtuberI18n.t('cfg.fontClear');
+      box.append(nameEl, uploadBtn, clearBtn, fileInput);
+
+      const refreshStatus = async () => {
+        try {
+          const st = await vtuberRPC.call('output.font.status');
+          nameEl.textContent = st.fontFile ? (st.fontFamily + ' · ' + st.fontFile) : vtuberI18n.t('cfg.fontNone');
+        } catch (e) {
+          nameEl.textContent = '-';
+        }
+      };
+      refreshStatus();
+
+      uploadBtn.onclick = () => fileInput.click();
+      fileInput.onchange = async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        const dataBase64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+          reader.onerror = () => reject(new Error('读取文件失败'));
+          reader.readAsDataURL(file);
+        });
+        try {
+          const res = await vtuberRPC.call('output.font.upload', { filename: file.name, dataBase64 });
+          showToast(vtuberI18n.t('cfg.fontSaved') + ': ' + res.fontFamily, 'success');
+        } catch (e) {
+          showToast(vtuberI18n.t('cfg.fontSaveFail') + ': ' + (e.message || e), 'err');
+        }
+        fileInput.value = '';
+        await refreshStatus();
+      };
+      clearBtn.onclick = async () => {
+        try {
+          await vtuberRPC.call('output.font.clear');
+          showToast(vtuberI18n.t('cfg.fontCleared'), 'success');
+        } catch (e) {
+          showToast(String(e.message || e), 'err');
+        }
+        await refreshStatus();
+      };
+      return box;
+    }
+
+    // ===== KV 行控件（Record<string,string> 编辑，如自定义请求头） =====
+    function renderCfgKvControl(path, meta, value) {
+      const box = document.createElement('div');
+      box.style.cssText = 'display:flex; flex-direction:column; gap:6px;';
+      const rowsHost = document.createElement('div');
+      rowsHost.id = fid(path);
+      rowsHost.style.cssText = 'display:flex; flex-direction:column; gap:6px;';
+      box.appendChild(rowsHost);
+      const addBtn = document.createElement('button');
+      addBtn.className = 'tac-btn tac-btn-sm';
+      addBtn.style.alignSelf = 'flex-start';
+      addBtn.textContent = '+ ' + (meta.itemLabel || '条目');
+      addBtn.onclick = () => {
+        addCfgKvRow(rowsHost, '', '', path, meta);
+        scheduleAutoSave(path, meta, 0);
+      };
+      box.appendChild(addBtn);
+      const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
+      for (const [k, v] of Object.entries(obj)) {
+        addCfgKvRow(rowsHost, k, String(v), path, meta);
+      }
+      return box;
+    }
+
+    function addCfgKvRow(host, key, value, path, meta) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; gap:6px;';
+      const keyInput = document.createElement('input');
+      keyInput.className = 'tac-input';
+      keyInput.style.width = '38%';
+      keyInput.placeholder = meta.keyPlaceholder || '名';
+      keyInput.value = key;
+      const valueInput = document.createElement('input');
+      valueInput.className = 'tac-input';
+      valueInput.style.flex = '1';
+      valueInput.placeholder = meta.valuePlaceholder || '值';
+      valueInput.value = value;
+      const del = document.createElement('button');
+      del.className = 'tac-btn tac-btn-sm tac-btn-danger';
+      del.textContent = '✕';
+      del.onclick = () => { row.remove(); scheduleAutoSave(path, meta, 0); };
+      keyInput.oninput = () => scheduleAutoSave(path, meta, 400);
+      valueInput.oninput = () => scheduleAutoSave(path, meta, 400);
+      row.append(keyInput, valueInput, del);
+      host.appendChild(row);
+    }
+
+    function collectKvData(path) {
+      const host = document.getElementById(fid(path));
+      const out = {};
+      if (!host) return out;
+      for (const row of host.querySelectorAll('div')) {
+        const inputs = row.querySelectorAll('input');
+        if (inputs.length < 2) continue;
+        const key = inputs[0].value.trim();
+        if (key) out[key] = inputs[1].value;
+      }
+      return out;
+    }
+
     function collectObjectData(path, meta) {
       const out = {};
       Object.entries(meta.properties || {}).forEach(([key, child]) => {
@@ -3922,6 +5134,8 @@
       if (meta.type === 'boolean') return el.checked;
       if (meta.type === 'number') return Number(el.value);
       if (meta.type === 'json') return JSON.parse(el.value || 'null');
+      if (meta.type === 'kv') return collectKvData(path);
+      if (meta.type === 'font' || meta.type === 'output' || meta.type === 'npOutputs' || meta.type === 'directOrderCard') return undefined;
       return el.value;
     }
 

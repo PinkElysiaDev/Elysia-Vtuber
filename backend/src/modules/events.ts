@@ -26,6 +26,10 @@ export interface EventReceiverDeps {
   getConfig: () => EventReceiverConfig
   /** 事件入历史（由变量系统/历史缓存实现） */
   onEvent: (event: StandardEvent) => void
+  /** 事件被过滤时回调（可观测性：区分"没收到"与"收到但被过滤"） */
+  onFiltered?: (event: StandardEvent) => void
+  /** SQLite 数据库（事件历史持久化） */
+  db?: import('../core/database').VtuberDatabase
 }
 
 /** 事件类型白名单（已知类型） */
@@ -61,6 +65,7 @@ export function buildEventModule(deps: EventReceiverDeps): Record<string, RpcHan
       const event = raw as StandardEvent
       event.timestamp = event.timestamp ?? Date.now()
       if (!passesFilter(event)) {
+        deps.onFiltered?.(event)
         return { success: true, filtered: true, type: event.type }
       }
       deps.onEvent(event)
@@ -79,11 +84,27 @@ export function buildEventModule(deps: EventReceiverDeps): Record<string, RpcHan
           accepted++
         } else {
           filtered++
+          deps.onFiltered?.(item)
         }
       }
       return { success: true, accepted, filtered, batchSize: raw.length }
     },
 
+    'event.history': (params) => {
+      const rec = (params as any) ?? {}
+      const limit = Math.max(1, Math.min(500, Number(rec.limit ?? 100)))
+      const db = deps.db
+      if (!db) return { events: [] }
+      const rows = db.getEventHistory(limit, rec.before !== undefined ? Number(rec.before) : undefined)
+      return { events: rows.map((r) => ({
+        id: r.id,
+        type: r.type,
+        timestamp: r.timestamp,
+        roomId: r.room_id,
+        user: r.user_uid ? { uid: r.user_uid, name: r.user_name ?? '', face: r.user_face ?? undefined } : undefined,
+        data: JSON.parse(r.data || '{}'),
+      })) }
+    },
     'event.simulate': (params) => {
       const raw = (params as any) ?? {}
       const type = String(raw.type || 'danmaku')

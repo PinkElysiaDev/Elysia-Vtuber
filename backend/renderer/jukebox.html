@@ -6,6 +6,7 @@
   <title>Jukebox Overlay</title>
   <link rel="stylesheet" href="assets/css/theme.css">
   <style>
+    * { box-sizing: border-box; }
     body {
       background: transparent !important;
       background-image: none !important;
@@ -13,145 +14,312 @@
       align-items: center;
       justify-content: center;
       padding: 24px;
+      font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      margin: 0;
     }
 
-    .jukebox-card {
-      width: 440px;
-      padding: 24px;
+    /* ===== 卡片：封面毛玻璃底 + 暗色遮罩（参考主控台播放中台） ===== */
+    .board {
+      width: 480px;
       position: relative;
       overflow: hidden;
+      border-radius: 18px;
+      background: linear-gradient(145deg, rgba(28,28,30,0.96), rgba(44,44,46,0.92));
+      border: 1px solid rgba(255,255,255,0.07);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+      animation: boardIn .5s cubic-bezier(0.16,1,0.3,1);
     }
-
-    .disc-container {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-      margin-bottom: 20px;
-    }
-
-    .vinyl-disc {
-      position: relative;
-      width: 110px;
-      height: 110px;
-      border-radius: 50%;
-      background: radial-gradient(circle, #18181b 35%, #27272a 36%, #09090b 70%);
-      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5), 0 0 20px var(--accent-cyan-glow);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      transition: transform 0.5s ease;
-    }
-
-    .vinyl-disc img {
-      width: 54px;
-      height: 54px;
-      border-radius: 50%;
+    @keyframes boardIn { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+    .board-bg {
+      position: absolute; left: -40px; top: -40px;
+      width: calc(100% + 80px); height: calc(100% + 80px);
       object-fit: cover;
+      filter: blur(30px) brightness(0.4) saturate(1.15);
+      opacity: 0; transition: opacity .6s;
+      z-index: 0;
+    }
+    .board-veil {
+      position: absolute; inset: 0;
+      background: linear-gradient(150deg, rgba(22,22,26,0.4), rgba(8,8,10,0.62));
+      z-index: 0;
+    }
+    .board-inner {
+      position: relative; z-index: 1;
+      padding: 20px 22px 16px;
+      display: flex; flex-direction: column; gap: 13px;
     }
 
-    .song-info {
-      flex: 1;
-      overflow: hidden;
+    /* ===== 顶区：封面 + 黑胶 + 信息 ===== */
+    .top { display: flex; gap: 16px; align-items: flex-start; }
+    .cover-wrap {
+      position: relative; width: 132px; height: 132px; flex-shrink: 0;
+    }
+    .cover {
+      width: 132px; height: 132px; border-radius: 12px; object-fit: cover;
+      display: block; background: #1a1a1a;
+      box-shadow: 0 10px 26px rgba(0,0,0,0.5);
+      transition: opacity .4s;
     }
 
-    .song-title {
-      font-size: 20px;
-      font-weight: 700;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      margin-bottom: 4px;
+    .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; padding-top: 2px; }
+    .badge {
+      align-self: flex-start;
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 10px; font-weight: 800; letter-spacing: 0.12em;
+      padding: 3px 10px; border-radius: 999px;
+      font-family: 'Segoe UI', 'Microsoft YaHei', monospace, sans-serif;
     }
+    .badge .dot { width: 6px; height: 6px; border-radius: 50%; }
+    .badge.playing { color: #34d399; background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.35); }
+    .badge.playing .dot { background: #34d399; animation: dotPulse 1.6s ease infinite; }
+    .badge.paused { color: #fbbf24; background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.35); }
+    .badge.paused .dot { background: #fbbf24; }
+    .badge.idle { color: rgba(255,255,255,0.45); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); }
+    .badge.idle .dot { background: rgba(255,255,255,0.4); }
+    @keyframes dotPulse { 0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(52,211,153,0.5); } 50% { opacity: .6; box-shadow: 0 0 0 4px rgba(52,211,153,0); } }
 
-    .song-artist {
-      font-size: 14px;
-      color: var(--text-secondary);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .title {
+      font-size: 19px; font-weight: 800; color: #fff; letter-spacing: -0.2px; line-height: 1.3;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    .artist {
+      font-size: 13px; color: rgba(255,255,255,0.55);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+    .pill {
+      font-size: 10px; color: rgba(255,255,255,0.6);
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);
+      padding: 2px 8px; border-radius: 999px;
+      max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .pill.accent { color: #ff8f9c; border-color: rgba(250,88,106,0.35); background: rgba(250,88,106,0.1); }
 
-    .lyric-line {
-      font-size: 15px;
-      font-weight: 600;
-      text-align: center;
-      min-height: 24px;
-      color: var(--accent-cyan);
-      text-shadow: 0 0 12px var(--accent-cyan-glow);
-      margin-top: 10px;
-      transition: all 0.3s ease;
+    /* ===== 进度 ===== */
+    .progress { display: flex; flex-direction: column; gap: 4px; }
+    .track { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.14); overflow: hidden; }
+    .fill { height: 100%; width: 0%; background: #fa586a; border-radius: 2px; transition: width .25s linear; }
+    .times { display: flex; justify-content: space-between; font-size: 10px; color: rgba(255,255,255,0.4); font-variant-numeric: tabular-nums; }
+
+    /* ===== 歌词 karaoke 三行窗口 ===== */
+    .lyrics {
+      min-height: 62px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 3px; text-align: center;
     }
+    .lyrics span { transition: all .3s ease; }
+    .lyric-dim { font-size: 12px; color: rgba(255,255,255,0.32); font-weight: 400; }
+    .lyric-cur { font-size: 15px; color: #fff; font-weight: 700; text-shadow: 0 1px 8px rgba(0,0,0,0.6); }
+    .lyric-none { font-size: 12px; color: rgba(255,255,255,0.3); }
+
+    /* ===== 待播队列 ===== */
+    .queue { display: flex; flex-direction: column; gap: 4px; }
+    .queue-label {
+      font-size: 9px; font-weight: 800; letter-spacing: 0.18em;
+      color: rgba(255,255,255,0.35); text-transform: uppercase;
+      display: flex; justify-content: space-between;
+      font-family: 'Segoe UI', monospace, sans-serif;
+    }
+    .queue-item {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: rgba(255,255,255,0.78);
+      padding: 3px 8px; border-radius: 6px;
+      background: rgba(255,255,255,0.05);
+      animation: qIn .3s ease;
+    }
+    @keyframes qIn { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+    .queue-item .no { color: #fa586a; font-weight: 800; font-size: 11px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    .queue-item .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .queue-item .u { font-size: 10px; color: rgba(255,255,255,0.4); flex-shrink: 0; max-width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .queue-empty { font-size: 11px; color: rgba(255,255,255,0.3); text-align: center; padding: 4px; }
   </style>
 </head>
 <body>
-  <div class="jukebox-card glass-panel">
-    <div class="disc-container">
-      <div class="vinyl-disc animate-spin" id="disc">
-        <img src="https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=150&q=80" id="cover" alt="Cover">
+  <div class="board" id="board">
+    <img class="board-bg" id="bg" alt="">
+    <div class="board-veil"></div>
+    <div class="board-inner">
+      <!-- 顶区：封面 + 信息 -->
+      <div class="top">
+        <div class="cover-wrap">
+          <img class="cover" id="cover" alt="cover">
+        </div>
+        <div class="info">
+          <span class="badge idle" id="badge"><span class="dot"></span><span id="badgeText">STANDBY</span></span>
+          <div class="title" id="title">未在播放</div>
+          <div class="artist" id="artist">—</div>
+          <div class="meta" id="meta"></div>
+        </div>
       </div>
-      <div class="song-info">
-        <div class="song-title" id="title">未播放</div>
-        <div class="song-artist" id="artist">等待点歌</div>
-        <div class="badge" id="badge" style="margin-top: 8px;">空闲</div>
+
+      <!-- 进度 -->
+      <div class="progress" id="progress">
+        <div class="track"><div class="fill" id="fill"></div></div>
+        <div class="times"><span id="tElapsed">0:00</span><span id="tRemain">-0:00</span></div>
+      </div>
+
+      <!-- 歌词 -->
+      <div class="lyrics" id="lyrics"><span class="lyric-none">暂无歌词</span></div>
+
+      <!-- 待播队列 -->
+      <div class="queue">
+        <div class="queue-label"><span>ON QUEUE · 待播</span><span id="qCount">0</span></div>
+        <div id="queueList"><div class="queue-empty">队列为空</div></div>
       </div>
     </div>
-
-    <!-- Audio Spectrum Bars Canvas -->
-    <div style="height: 60px; width: 100%;">
-      <canvas id="spectrumCanvas" style="width: 100%; height: 100%;"></canvas>
-    </div>
-
-    <!-- Dynamic Neon Lyric Line -->
-    <div class="lyric-line" id="lyric"></div>
   </div>
 
   <script src="assets/js/rpc-client.js"></script>
-  <script src="assets/js/audio-visualizer.js"></script>
   <script>
-    const spectrum = new AudioSpectrumVisualizer(document.getElementById('spectrumCanvas'), { barCount: 36 });
-    // 波形由执行器上报的真实播放电平驱动（music 通道），无数据 250ms 后归零
-    spectrum.startRealtime();
-    window.vtuberRPC.on('player.levels', (lv) => {
-      if (!lv || lv.channel !== 'music') return;
-      spectrum.feedLevel(lv);
-    });
+    // ===== 状态：广播锚点 + 本地时钟插值（暂停冻结） =====
+    const S = { np: null, queue: [], running: false, anchorElapsed: 0, anchorAt: Date.now() };
+    const PLACEHOLDER = "data:image/svg+xml," + encodeURIComponent(
+      "<svg xmlns='http://www.w3.org/2000/svg' width='132' height='132'>" +
+      "<rect width='132' height='132' fill='#1a1a1a'/>" +
+      "<text x='66' y='76' font-size='40' text-anchor='middle' fill='rgba(255,255,255,0.25)'>&#9835;</text></svg>");
 
-    function applyNowPlaying(np, running) {
-      const title = document.getElementById('title');
-      const artist = document.getElementById('artist');
-      const badge = document.getElementById('badge');
-      const lyric = document.getElementById('lyric');
-      const cover = document.getElementById('cover');
-      if (!np) {
-        title.textContent = '未播放';
-        artist.textContent = running ? '等待点歌' : '点歌机未启动';
-        badge.textContent = running ? '空闲' : '停止';
-        badge.className = 'badge';
-        lyric.textContent = '';
-        return;
-      }
-      title.textContent = np.title || '未知歌曲';
-      artist.textContent = np.artist || np.userName || '';
-      badge.textContent = np.paused ? '暂停' : '播放中';
-      badge.className = 'badge badge-success';
-      if (np.cover) cover.src = np.cover;
-      if (np.lyric) lyric.textContent = np.lyric;
+    function $(id) { return document.getElementById(id); }
+
+    function fmt(sec) {
+      const s = Math.max(0, Math.floor(sec));
+      return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
     }
 
+    function elapsedNow() {
+      if (!S.np) return 0;
+      if (S.np.paused) return S.np.elapsed ?? 0;
+      return (S.np.elapsed ?? 0) + (Date.now() - S.anchorAt) / 1000;
+    }
+
+    function setBadge(state, text) {
+      const badge = $('badge');
+      badge.className = 'badge ' + state;
+      $('badgeText').textContent = text;
+    }
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    /** 应用状态（np 可为 null；queue/running 可选，来自 jukebox.state 时提供） */
+    function applyState(np, queue, running) {
+      S.np = np || null;
+      if (queue) S.queue = queue;
+      if (running !== undefined) S.running = !!running;
+      S.anchorElapsed = np?.elapsed ?? 0;
+      S.anchorAt = Date.now();
+      // 换歌时清歌词行缓存，避免新旧行号相同残留上一首歌词
+      $('lyrics').dataset.idx = '';
+
+      const cover = $('cover');
+      const bg = $('bg');
+      cover.onerror = () => { cover.src = PLACEHOLDER; };
+      bg.onerror = () => { bg.style.opacity = '0'; };
+
+      if (!np) {
+        setBadge(S.running ? 'idle' : 'idle', S.running ? 'STANDBY' : 'OFFLINE');
+        $('title').textContent = '未在播放';
+        $('artist').textContent = S.running ? '等待点歌' : '点歌机未启动';
+        $('meta').innerHTML = '';
+        cover.src = PLACEHOLDER;
+        bg.style.opacity = '0';
+        $('progress').style.visibility = 'hidden';
+      } else {
+        setBadge(np.paused ? 'paused' : 'playing', np.paused ? 'PAUSED' : 'PLAYING');
+        $('title').textContent = np.title || '未知歌曲';
+        $('title').title = np.title || '';
+        $('artist').textContent = np.artist || '';
+        $('artist').title = np.artist || '';
+        const pills = [];
+        if (np.userName && np.userName !== 'system' && np.userName !== 'idle') {
+          pills.push('<span class="pill accent" title="' + esc(np.userName) + '">点歌 · ' + esc(np.userName) + '</span>');
+        }
+        if (np.source) pills.push('<span class="pill">' + esc(String(np.source).toUpperCase()) + '</span>');
+        $('meta').innerHTML = pills.join('');
+        if (np.cover) {
+          if (cover.getAttribute('src') !== np.cover) cover.src = np.cover;
+          if (bg.getAttribute('src') !== np.cover) bg.src = np.cover;
+          bg.style.opacity = '1';
+        } else {
+          cover.src = PLACEHOLDER;
+          bg.style.opacity = '0';
+        }
+        $('progress').style.visibility = (np.duration || 0) > 0 ? 'visible' : 'hidden';
+      }
+
+      renderQueue();
+      tick();
+    }
+    window.applyState = applyState; // 供外部注入/调试
+
+    function renderQueue() {
+      const host = $('queueList');
+      $('qCount').textContent = String(S.queue.length);
+      if (!S.queue.length) {
+        host.innerHTML = '<div class="queue-empty">队列为空</div>';
+        return;
+      }
+      host.innerHTML = S.queue.slice(0, 5).map((q, i) =>
+        '<div class="queue-item"><span class="no">' + (i + 1) + '</span>' +
+        '<span class="t" title="' + esc(q.title) + ' - ' + esc(q.artist) + '">' + esc(q.title) + ' - ' + esc(q.artist) + '</span>' +
+        (q.userName && q.userName !== 'system' ? '<span class="u">' + esc(q.userName) + '</span>' : '') +
+        '</div>'
+      ).join('');
+    }
+
+    /** 250ms 心跳：进度 + 歌词逐行推进（本地时钟，无广播也动） */
+    function tick() {
+      const np = S.np;
+      if (!np) { $('fill').style.width = '0%'; $('tElapsed').textContent = '0:00'; $('tRemain').textContent = '-0:00'; return; }
+      const duration = Math.max(1, np.duration || 1);
+      const elapsed = Math.min(elapsedNow(), duration);
+      $('fill').style.width = (elapsed / duration) * 100 + '%';
+      $('tElapsed').textContent = fmt(elapsed);
+      $('tRemain').textContent = '-' + fmt(duration - elapsed);
+      renderLyric(elapsed);
+    }
+
+    function renderLyric(elapsed) {
+      const host = $('lyrics');
+      const lines = S.np?.lyrics ?? [];
+      if (!lines.length) {
+        if (host.childElementCount !== 1 || !host.firstChild.classList.contains('lyric-none')) {
+          host.innerHTML = '<span class="lyric-none">暂无歌词</span>';
+        }
+        return;
+      }
+      let idx = 0;
+      for (let i = 0; i < lines.length; i++) { if (lines[i].time <= elapsed) idx = i; else break }
+      // 恒渲染三行（前/当/后）：越界或空词行用同尺寸占位，行盒高度稳定不跳动
+      const rows = [lines[idx - 1], lines[idx], lines[idx + 1]];
+      const html = rows.map((l, i) => {
+        const cls = i === 1 ? 'lyric-cur' : 'lyric-dim';
+        const text = l ? (esc(l.lyric) || '&nbsp;') : '&nbsp;';
+        return '<span class="' + cls + '">' + text + '</span>';
+      }).join('');
+      if (host.dataset.idx !== String(idx)) {
+        host.innerHTML = html;
+        host.dataset.idx = String(idx);
+      }
+    }
+
+    setInterval(tick, 250);
+
+    // ===== 数据接入：广播驱动 + 初始拉取 =====
     window.vtuberRPC.on('jukebox.state', (state) => {
       if (!state) return;
-      applyNowPlaying(state.nowPlaying, state.running);
+      applyState(state.nowPlaying || null, state.queue || [], state.running);
     });
-    window.vtuberRPC.on('jukebox.nowPlaying', (np) => applyNowPlaying(np, true));
+    window.vtuberRPC.on('jukebox.nowPlaying', (np) => applyState(np || null));
 
+    $('cover').src = PLACEHOLDER;
     window.addEventListener('load', async () => {
       try {
         await window.vtuberRPC.whenReady();
         const state = await window.vtuberRPC.call('jukebox.getState');
-        applyNowPlaying(state.nowPlaying, state.running);
+        applyState(state.nowPlaying || null, state.queue || [], state.running);
       } catch (e) {
-        document.getElementById('artist').textContent = '未连接逻辑服务';
+        setBadge('idle', 'OFFLINE');
+        $('artist').textContent = '未连接逻辑服务';
       }
     });
   </script>

@@ -65,6 +65,30 @@ export interface TriggerAction {
   waitMs?: number
 }
 
+/** 思考/推理开关：anthropic/gemini 映射 canonical.thinking，openai 系映射 canonical.reasoning.effort */
+export interface LlmThinkingConfig {
+  enabled: boolean
+  effort?: string
+}
+
+/** 注册表中的 LLM 模型档案：字段逐项覆盖内联默认配置（为空回退内联值） */
+export interface LlmModelProfile {
+  label: string
+  provider: string
+  baseURL: string
+  apiKey: string
+  model: string
+  headers?: Record<string, string>
+  thinking?: LlmThinkingConfig
+  temperature?: number
+  maxTokens?: number
+  topP?: number
+  timeoutMs?: number
+  /** 上下文窗口（token），用户手填，供后续消费方（触发器等）参考 */
+  contextWindow?: number
+  enabled?: boolean
+}
+
 export interface LLMConfig {
   provider: string
   baseURL: string
@@ -79,8 +103,17 @@ export interface LLMConfig {
   systemPrompt: string
   /** 工具加载开关：name → false 表示不暴露给模型；缺失 = 启用（提示词工坊「工具加载管理」维护） */
   tools: Record<string, boolean>
-  /** MCP 外部服务器（stdio）：name → 命令配置；工具注册为 mcp__<server>__<tool> */
-  mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }>
+  /**
+   * MCP 外部服务器：name → 配置；工具注册为 mcp__<server>__<tool>。
+   * command（stdio 子进程）或 url（Streamable HTTP）二选一，headers 供 HTTP 鉴权。
+   */
+  mcpServers: Record<string, { command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled?: boolean }>
+  /** 内联默认模型的思考开关 */
+  thinking: LlmThinkingConfig
+  /** 多模型注册表：name → 档案（LLM MODELS 面板维护） */
+  models: Record<string, LlmModelProfile>
+  /** 当前使用的注册表键；空 = 用上方内联字段 */
+  activeModel: string
 }
 
 export interface TTSConfig {
@@ -111,6 +144,10 @@ export interface OutputConfig {
     enabled: boolean
     style: 'bubble' | 'subtitle' | 'markdown'
     fontSize: number
+    /** 自定义字体文件名（存于配置目录 fonts/，经 /fonts/ 提供；空 = 系统默认） */
+    fontFile: string
+    /** @font-face 家族名（上传时默认取文件名去扩展名） */
+    fontFamily: string
   }
   /** TTS 语音 */
   tts: {
@@ -136,10 +173,12 @@ export interface MusicConfig {
   maxDuration: number
   /** 队列上限 */
   maxQueueSize: number
-  /** 单个用户同时可点数量 */
+  /** 播放列表内单用户最大点歌数（控制台/系统操作豁免） */
   maxPerUser: number
-  /** 空闲歌单（Medias 的 URL 列表，如 netease:https://...） */
+  /** 旧版平铺待机歌曲列表（仅迁移用，调度读 idlePlaylists） */
   idlePlaylist: string[]
+  /** 空闲歌单分组：每组 = 一次导入的歌单或手动收录集合；待机调度跨组轮转 */
+  idlePlaylists: Array<{ name: string; ref: string; songs: string[] }>
   /** 空闲歌单是否自动循环 */
   idleLoop: boolean
   /** 直接点歌（绕过 LLM） */
@@ -152,17 +191,41 @@ export interface MusicConfig {
     /** 点歌是否注册为插件指令（通过插件直接点歌） */
     pluginCommand: boolean
   }
+  /** 切歌指令（Ayna 风格：观众弹幕整条精确匹配触发词即跳过当前曲目） */
+  skipCommand: {
+    enabled: boolean
+    /** 触发词，整条弹幕精确匹配，如 "切歌" */
+    keywords: string[]
+    /** 仅允许切自己点的歌；空闲歌单曲目（userId=system）不受限 */
+    selfOnly: boolean
+  }
   /** 歌曲信息输出 */
   nowPlaying: {
     /** OBS 文本输出：每个条目渲染一个文件；file 为纯文件名，统一写入 data/music_info/ */
     outputs: Array<{ file: string; template: string }>
     /** 是否开启歌曲信息窗口 */
     windowEnabled: boolean
+    /** {{queue}} 待播列表的单元素格式模板（元素级变量：index/title/artist/duration/durationSec/user/source/songId/cover） */
+    queueItemTemplate: string
   }
+  /** 系统启动时自动让点歌机上线 */
+  autoStartJukebox: boolean
+  /** 点歌去重：同一首歌（同音源同 ID）已在待播队列/播放中时拒绝重复点入；不同版本视为不同歌曲 */
+  dedupe: boolean
   /** 播放输出设备 */
   outputDevice: string
   /** 登录状态（保存各音源 session） */
   sessions: Record<string, string>
+}
+
+/** 数据保留策略（仿 tts.tempFileTtlMinutes 模式：0 = 永久保留） */
+export interface DataRetentionConfig {
+  /** 播放记录保留天数，0 = 永久 */
+  playHistoryDays: number
+  /** 事件历史保留天数，0 = 永久 */
+  eventHistoryDays: number
+  /** 前端事件日志显示上限（条，DOM 上限非存储上限） */
+  frontendLogMax: number
 }
 
 /** Live2D 资源注册：哪些表情/换装/动作注册进 LLM 工具、待机播放规律 */
@@ -235,6 +298,7 @@ export interface BackendConfig {
   tts: TTSConfig
   output: OutputConfig
   music: MusicConfig
+  dataRetention: DataRetentionConfig
   live2d: Live2DConfig
   audio: AudioConfig
   audioCpp: CppConfig
@@ -307,6 +371,9 @@ export function defaultConfig(): BackendConfig {
       apiKey: '',
       tools: {},
       mcpServers: {},
+      thinking: { enabled: false },
+      models: {},
+      activeModel: '',
       model: 'gpt-4o-mini',
       customHeaders: {},
       temperature: 0.7,
@@ -339,7 +406,7 @@ export function defaultConfig(): BackendConfig {
     },
     output: {
       danmaku: { enabled: true, ratePerMinute: 20 },
-      display: { enabled: true, style: 'bubble', fontSize: 28 },
+      display: { enabled: true, style: 'bubble', fontSize: 28, fontFile: '', fontFamily: '' },
       tts: { enabled: false, delayBeforeSpeakMs: 600 },
     },
     music: {
@@ -348,6 +415,7 @@ export function defaultConfig(): BackendConfig {
       maxQueueSize: 50,
       maxPerUser: 3,
       idlePlaylist: [],
+      idlePlaylists: [],
       idleLoop: true,
       directOrder: {
         enabled: false,
@@ -362,14 +430,27 @@ export function defaultConfig(): BackendConfig {
         },
         pluginCommand: false,
       },
+      skipCommand: {
+        enabled: false,
+        keywords: ['切歌'],
+        selfOnly: true,
+      },
       nowPlaying: {
         outputs: [
           { file: 'nowplaying.txt', template: '🎵 {{title}} - {{artist}} ({{duration}})' },
         ],
         windowEnabled: true,
+        queueItemTemplate: '{{index}}. {{title}} - {{artist}}',
       },
+      autoStartJukebox: false,
+      dedupe: false,
       outputDevice: '',
       sessions: {},
+    },
+    dataRetention: {
+      playHistoryDays: 90,
+      eventHistoryDays: 30,
+      frontendLogMax: 200,
     },
     live2d: {
       modelPath: '../cpp-executor/build/Debug/Resources/Haru/Haru.model3.json',
@@ -435,6 +516,16 @@ export function loadConfig(configPath = 'backend-config.json'): BackendConfig {
       user.live2dCpp = user.cpp
     }
     delete user.cpp
+    // 迁移：旧版平铺 idlePlaylist → idlePlaylists 分组（「默认歌单」单组）
+    const userMusic0 = user.music as { idlePlaylist?: unknown; idlePlaylists?: unknown } | undefined
+    if (Array.isArray(userMusic0?.idlePlaylist) && userMusic0.idlePlaylist.length
+      && (!Array.isArray(userMusic0?.idlePlaylists) || userMusic0.idlePlaylists.length === 0)) {
+      userMusic0.idlePlaylists = [{
+        name: '默认歌单',
+        ref: '',
+        songs: userMusic0.idlePlaylist.map(String),
+      }]
+    }
     // 迁移：旧版 nowPlaying 单模板/单文件 → outputs（须在 deepMerge 前处理用户侧数据，
     // 否则默认 outputs 与用户旧键并存会跳过迁移）；file 一律规范化为纯文件名（统一落 data/nowplaying/）
     const userMusic = user.music as { nowPlaying?: Record<string, unknown> } | undefined

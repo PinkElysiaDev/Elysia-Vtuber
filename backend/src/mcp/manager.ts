@@ -1,10 +1,11 @@
 /**
- * MCP 服务器管理：按 llm.mcpServers 配置连接 stdio MCP 服务器，
+ * MCP 服务器管理：按 llm.mcpServers 配置连接 MCP 服务器（stdio 或 Streamable HTTP），
  * 把远端工具注册进本地 ToolRegistry（命名 mcp__<server>__<tool>）。
  * 子模块向系统注册工具 → LLM 统一检测/门控 的架构在 MCP 侧的落点。
  */
 import type { ToolRegistry } from '../core/tools'
-import { McpStdioClient, type McpServerConfig, type McpToolInfo } from './client'
+import { McpStdioClient, type McpClient, type McpServerConfig, type McpToolInfo } from './client'
+import { McpHttpClient } from './http-client'
 
 export interface McpManagerDeps {
   tools: ToolRegistry
@@ -13,12 +14,23 @@ export interface McpManagerDeps {
 }
 
 interface ServerEntry {
-  client: McpStdioClient
+  client: McpClient
   tools: McpToolInfo[]
 }
 
 export function mcpToolName(server: string, tool: string): string {
   return `mcp__${server}__${tool}`
+}
+
+function createClient(name: string, cfg: McpServerConfig): McpClient {
+  if (cfg.url) return new McpHttpClient(name, cfg)
+  if (cfg.command) return new McpStdioClient(name, cfg)
+  throw new Error('mcp: 配置需要 command（stdio）或 url（HTTP）之一')
+}
+
+/** stale 校验：连接期间配置可能被改，目标（命令或 URL）变了就不得注册 */
+function sameTarget(a: McpServerConfig, b: McpServerConfig): boolean {
+  return (a.command ?? '') === (b.command ?? '') && (a.url ?? '') === (b.url ?? '')
 }
 
 export class McpManager {
@@ -39,51 +51,85 @@ export class McpManager {
     return p
   }
 
-  /** 连接单个服务器并注册其工具（串行执行；完成后校验配置未被并发修改） */
+  /** 连接单个服务器并注册其工具（入串行链；完成后校验配置未被并发修改） */
   async connectServer(name: string, cfg: McpServerConfig): Promise<{ ok: boolean; toolCount: number; error?: string }> {
-    return this.run(async () => {
-      this.disconnectServer(name)
-      if (cfg.enabled === false) {
-        return { ok: false, toolCount: 0, error: 'disabled' }
-      }
-      const client = new McpStdioClient(name, cfg)
-      const entry: ServerEntry = { client, tools: [] }
-      this.entries.set(name, entry)
-      try {
-        await client.connect()
-        entry.tools = await client.listTools()
-        // 过期校验：连接期间配置可能已变（被移除/禁用）——不得复活
-        const latest = this.deps.getConfig()[name]
-        if (!latest || latest.command !== cfg.command || latest.enabled === false) {
-          client.disconnect()
-          this.entries.delete(name)
-          return { ok: false, toolCount: 0, error: 'stale' }
-        }
-        for (const tool of entry.tools) {
-          const remote = tool
-          this.deps.tools.register({
-            name: mcpToolName(name, remote.name),
-            description: `[MCP:${name}] ${remote.description || remote.name}`,
-            parameters: remote.inputSchema,
-            handler: async (args) => {
-              if (client.status !== 'connected') {
-                return { success: false, error: `MCP 服务器 ${name} 未连接` }
-              }
-              try {
-                const res = await client.callTool(remote.name, args)
-                return res
-              } catch (err) {
-                return { success: false, error: err instanceof Error ? err.message : String(err) }
-              }
-            },
-          })
-        }
-        return { ok: true, toolCount: entry.tools.length }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
+    return this.run(() => this.connectServerLocked(name, cfg))
+  }
+
+  /** 内部使用：已在串行链上，直接连接（不再入队） */
+  private async connectServerLocked(name: string, cfg: McpServerConfig): Promise<{ ok: boolean; toolCount: number; error?: string }> {
+    this.disconnectServer(name)
+    if (cfg.enabled === false) {
+      return { ok: false, toolCount: 0, error: 'disabled' }
+    }
+    let client: McpClient
+    try {
+      client = createClient(name, cfg)
+    } catch (err) {
+      return { ok: false, toolCount: 0, error: err instanceof Error ? err.message : String(err) }
+    }
+    const entry: ServerEntry = { client, tools: [] }
+    this.entries.set(name, entry)
+    try {
+      client.onToolsChanged = () => { void this.refreshServerTools(name) }
+      await client.connect()
+      entry.tools = await client.listTools()
+      // 过期校验：连接期间配置可能已变（被移除/禁用/改目标）——不得复活
+      const latest = this.deps.getConfig()[name]
+      if (!latest || !sameTarget(latest, cfg) || latest.enabled === false) {
         client.disconnect()
         this.entries.delete(name)
-        return { ok: false, toolCount: 0, error: msg }
+        return { ok: false, toolCount: 0, error: 'stale' }
+      }
+      this.registerTools(name, entry)
+      return { ok: true, toolCount: entry.tools.length }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      client.disconnect()
+      this.entries.delete(name)
+      return { ok: false, toolCount: 0, error: msg }
+    }
+  }
+
+  private registerTools(name: string, entry: ServerEntry): void {
+    const client = entry.client
+    for (const remote of entry.tools) {
+      this.deps.tools.register({
+        name: mcpToolName(name, remote.name),
+        description: `[MCP:${name}] ${remote.description || remote.name}`,
+        parameters: remote.inputSchema,
+        handler: async (args) => {
+          if (client.status !== 'connected') {
+            return { success: false, error: `MCP 服务器 ${name} 未连接` }
+          }
+          try {
+            return await client.callTool(remote.name, args)
+          } catch (err) {
+            return { success: false, error: err instanceof Error ? err.message : String(err) }
+          }
+        },
+      })
+    }
+  }
+
+  private unregisterTools(name: string, tools: McpToolInfo[]): void {
+    for (const tool of tools) {
+      this.deps.tools.unregister(mcpToolName(name, tool.name))
+    }
+  }
+
+  /** tools/list_changed 通知：重拉工具列表并重建注册（串行，防与增删配置竞态） */
+  async refreshServerTools(name: string): Promise<void> {
+    return this.run(async () => {
+      const entry = this.entries.get(name)
+      if (!entry || entry.client.status !== 'connected') return
+      try {
+        const tools = await entry.client.listTools()
+        this.unregisterTools(name, entry.tools)
+        entry.tools = tools
+        this.registerTools(name, entry)
+      } catch {
+        // 拉取失败保留现有注册，等下一次通知
       }
     })
   }
@@ -91,9 +137,8 @@ export class McpManager {
   disconnectServer(name: string): void {
     const entry = this.entries.get(name)
     if (!entry) return
-    for (const tool of entry.tools) {
-      this.deps.tools.unregister(mcpToolName(name, tool.name))
-    }
+    this.unregisterTools(name, entry.tools)
+    entry.client.onToolsChanged = null
     entry.client.disconnect()
     this.entries.delete(name)
   }
@@ -116,62 +161,20 @@ export class McpManager {
     })
   }
 
-  /** 内部使用：已在串行链上，直接连接（不再入队） */
-  private async connectServerLocked(name: string, cfg: McpServerConfig): Promise<{ ok: boolean; toolCount: number; error?: string }> {
-    this.disconnectServer(name)
-    if (cfg.enabled === false) {
-      return { ok: false, toolCount: 0, error: 'disabled' }
-    }
-    const client = new McpStdioClient(name, cfg)
-    const entry: ServerEntry = { client, tools: [] }
-    this.entries.set(name, entry)
-    try {
-      await client.connect()
-      entry.tools = await client.listTools()
-      const latest = this.deps.getConfig()[name]
-      if (!latest || latest.command !== cfg.command || latest.enabled === false) {
-        client.disconnect()
-        this.entries.delete(name)
-        return { ok: false, toolCount: 0, error: 'stale' }
-      }
-      for (const remote of entry.tools) {
-        this.deps.tools.register({
-          name: mcpToolName(name, remote.name),
-          description: `[MCP:${name}] ${remote.description || remote.name}`,
-          parameters: remote.inputSchema,
-          handler: async (args) => {
-            if (client.status !== 'connected') {
-              return { success: false, error: `MCP 服务器 ${name} 未连接` }
-            }
-            try {
-              return await client.callTool(remote.name, args)
-            } catch (err) {
-              return { success: false, error: err instanceof Error ? err.message : String(err) }
-            }
-          },
-        })
-      }
-      return { ok: true, toolCount: entry.tools.length }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      client.disconnect()
-      this.entries.delete(name)
-      return { ok: false, toolCount: 0, error: msg }
-    }
-  }
-
   stopAll(): void {
     for (const name of [...this.entries.keys()]) this.disconnectServer(name)
   }
 
-  list(): Array<{ name: string; command: string; status: string; toolCount: number; error: string; serverInfo: { name?: string; version?: string } }> {
+  list(): Array<{ name: string; transport: 'stdio' | 'http'; command: string; url: string; status: string; toolCount: number; error: string; serverInfo: { name?: string; version?: string } }> {
     const cfg = this.deps.getConfig()
-    const out: Array<{ name: string; command: string; status: string; toolCount: number; error: string; serverInfo: { name?: string; version?: string } }> = []
+    const out: Array<{ name: string; transport: 'stdio' | 'http'; command: string; url: string; status: string; toolCount: number; error: string; serverInfo: { name?: string; version?: string } }> = []
     for (const [name, serverCfg] of Object.entries(cfg)) {
       const entry = this.entries.get(name)
       out.push({
         name,
+        transport: serverCfg.url ? 'http' : 'stdio',
         command: [serverCfg.command, ...(serverCfg.args ?? [])].join(' '),
+        url: serverCfg.url ?? '',
         status: serverCfg.enabled === false ? 'disabled' : entry ? entry.client.status : 'disconnected',
         toolCount: entry?.tools.length ?? 0,
         error: entry?.client.lastError ?? '',
@@ -183,7 +186,7 @@ export class McpManager {
 
   /** 增改服务器：写配置并立即连接（串行） */
   async upsertServer(name: string, cfg: McpServerConfig): Promise<{ ok: boolean; toolCount: number; error?: string }> {
-    if (!name || !cfg.command) throw new Error('requires { name, command }')
+    if (!name || !(cfg.command || cfg.url)) throw new Error('requires { name, command | url }')
     const next = { ...this.deps.getConfig(), [name]: cfg }
     this.deps.saveConfig(next)
     return this.connectServer(name, cfg)

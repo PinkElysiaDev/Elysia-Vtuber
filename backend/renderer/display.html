@@ -86,6 +86,30 @@
       timeElem.textContent = new Date().toLocaleTimeString('zh-CN');
     }
 
+    // 应用展示板配置：字号（px）与自定义字体（@font-face 指向 /fonts/<file>）
+    let displayFontStyleEl = null;
+    async function applyDisplayConfig() {
+      try {
+        const config = await window.vtuberRPC.call('config.get');
+        const display = config?.output?.display ?? {};
+        const textElem = document.getElementById('textContent');
+        if (display.fontSize) textElem.style.fontSize = Number(display.fontSize) + 'px';
+        if (display.fontFamily) textElem.style.fontFamily = display.fontFamily + ', sans-serif';
+        if (displayFontStyleEl) { displayFontStyleEl.remove(); displayFontStyleEl = null; }
+        if (display.fontFile) {
+          displayFontStyleEl = document.createElement('style');
+          displayFontStyleEl.textContent =
+            '@font-face { font-family: ' + JSON.stringify(display.fontFamily || 'custom-font') +
+            '; src: url(/fonts/' + encodeURIComponent(display.fontFile) + ') format(' +
+            (display.fontFile.endsWith('.woff2') ? ''woff2'' : display.fontFile.endsWith('.woff') ? ''woff'' : ''truetype'') +
+            '); }';
+          document.head.appendChild(displayFontStyleEl);
+        }
+      } catch (e) { /* 配置拉取失败保持默认样式 */ }
+    }
+    applyDisplayConfig();
+    window.vtuberRPC.on('config.changed', () => { applyDisplayConfig(); });
+
     window.vtuberRPC.on('output.display', (data) => updateDisplay(data || {}));
     window.vtuberRPC.on('display.update', (data) => updateDisplay(data || {}));
     window.vtuberRPC.on('display.clear', () => {

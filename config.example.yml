@@ -1,4 +1,4 @@
-# Koishi 插件配置。LLM / TTS / 点歌在逻辑服务 WebUI 里改，不要写在这里。
+# Koishi 插件配置。事件接收开关 / LLM / TTS / 点歌在逻辑服务 WebUI 里改，不要写在这里。
 
 plugins:
   vtuber:
@@ -13,13 +13,5 @@ plugins:
       startTimeout: 15000
       reconnectInterval: 5000
       timeout: 10000
-    events:
-      danmaku: true
-      gift: true
-      superchat: true
-      enter: false
-      follow: true
-      like: false
-      guard: true
-      liveStart: true
-      liveEnd: true
+    danmaku:
+      platform: bililive

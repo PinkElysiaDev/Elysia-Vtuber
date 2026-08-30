@@ -13,16 +13,8 @@ export interface Config {
     reconnectInterval: number
     timeout: number
   }
-  events: {
-    danmaku: boolean
-    gift: boolean
-    superchat: boolean
-    enter: boolean
-    follow: boolean
-    like: boolean
-    guard: boolean
-    liveStart: boolean
-    liveEnd: boolean
+  danmaku: {
+    platform: string
   }
 }
 
@@ -39,17 +31,9 @@ export const Config: Schema<Config> = Schema.object({
     reconnectInterval: Schema.number().default(5000).description('重连间隔(ms)'),
     timeout: Schema.number().default(10000).description('请求超时(ms)'),
   }).description('逻辑服务连接配置'),
-  events: Schema.object({
-    danmaku: Schema.boolean().default(true),
-    gift: Schema.boolean().default(true),
-    superchat: Schema.boolean().default(true),
-    enter: Schema.boolean().default(false),
-    follow: Schema.boolean().default(true),
-    like: Schema.boolean().default(false),
-    guard: Schema.boolean().default(true),
-    liveStart: Schema.boolean().default(true),
-    liveEnd: Schema.boolean().default(true),
-  }).description('需要转发的事件'),
+  danmaku: Schema.object({
+    platform: Schema.string().default('bililive').description('发送弹幕使用的机器人平台名'),
+  }).description('弹幕发送设置'),
 })
 
 export default Config

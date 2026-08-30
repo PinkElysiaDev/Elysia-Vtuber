@@ -29,6 +29,10 @@ import { OutputRouter } from './modules/output'
 import { buildRuntimeModule, registerBuiltinTools, registerLive2dTools, LIVE2D_DYNAMIC_TOOLS } from './modules/tools'
 import { buildMcpModule } from './modules/mcp'
 import { McpManager } from './mcp/manager'
+import { buildLlmModelsModule } from './modules/llm-models'
+import { VtuberDatabase } from './core/database'
+import { RetentionSweeper } from './core/retention'
+import { buildOutputFontModule, fontsDir } from './modules/output-font'
 import { applyLive2dConfig, applyWindowConfig, buildLive2dModule } from './modules/live2d'
 import { TtsEngine } from './tts/engine'
 import { buildTtsModule } from './modules/tts'
@@ -50,6 +54,10 @@ class VtuberService {
   tools = new ToolRegistry()
   triggers = new TriggerEngine()
   gateway: LLMGateway
+  /** SQLite 数据库（播放记录/事件历史持久化） */
+  db: VtuberDatabase
+  /** 数据保留清理器 */
+  retention: RetentionSweeper
   session: LLMSession
   output: OutputRouter
   jukebox: Jukebox
@@ -59,7 +67,11 @@ class VtuberService {
   mcp: McpManager
   /** 上次 MCP 配置快照：仅 mcpServers 实际变更才重连，避免无关配置写入打断 MCP 子进程 */
   private lastMcpJson = ''
+  /** 上次歌曲信息输出配置快照：nowPlaying 实际变更才让点歌机重写输出文件 */
+  private lastNowPlayingJson = ''
   private eventCount = 0
+  private filteredCount = 0
+  private lastEventAt = 0
   private httpServer: http.Server | null = null
   private fireQueue: TriggerFire[] = []
   private firing = false
@@ -80,6 +92,16 @@ class VtuberService {
     this.audioCpp = new CppClient(this.config.audioCpp)
     this.live2dCpp = new CppClient(this.config.live2dCpp)
     this.gateway = new LLMGateway(this.config.llm)
+    // SQLite：与配置同目录 data/vtuber.db（测试实例自动隔离）
+    this.db = new VtuberDatabase()
+    this.db.open(path.resolve(path.dirname(this.configPath), 'data', 'vtuber.db'))
+    // 旧 JSON 播放记录迁移
+    this.db.migratePlayHistoryJson(path.resolve(path.dirname(this.configPath), 'play-history.json'))
+    this.retention = new RetentionSweeper({
+      db: this.db,
+      getPlayHistoryDays: () => this.config.dataRetention?.playHistoryDays ?? 90,
+      getEventHistoryDays: () => this.config.dataRetention?.eventHistoryDays ?? 30,
+    })
     this.ttsEngine = new TtsEngine({
       getTts: () => this.config.tts,
       getAudio: () => this.config.audio,
@@ -115,6 +137,11 @@ class VtuberService {
     this.jukebox = new Jukebox({
       registry: createDefaultRegistry(),
       getConfig: () => this.config.music,
+      db: this.db,
+      persistConfig: () => {
+        saveConfig(this.config, this.configPath)
+        this.ws.broadcast('webui', 'config.changed', { ok: true })
+      },
       cpp: this.audioCpp,
       broadcast: (method, params) => this.ws.broadcast('webui', method, params),
     })
@@ -233,7 +260,21 @@ class VtuberService {
 
   onEvent(event: StandardEvent): void {
     this.eventCount++
+    this.lastEventAt = Date.now()
     this.history.push(event)
+    try {
+      this.db.insertEventHistory({
+        type: event.type,
+        timestamp: event.timestamp,
+        room_id: event.roomId,
+        user_uid: event.user?.uid ?? null,
+        user_name: event.user?.name ?? null,
+        user_face: event.user?.face ?? null,
+        data: JSON.stringify(event.data ?? {}),
+      })
+    } catch (err) {
+      console.warn('[db] 事件历史写入失败:', err)
+    }
     this.bus.emit('event', event)
     if (this.jukebox.tryDirectOrder(event)) return
     this.triggers.handleEvent(event)
@@ -329,6 +370,8 @@ class VtuberService {
       live2dCpp: this.live2dCpp,
       shutdown: () => this.stop(),
       getEventCount: () => this.eventCount,
+      getFilteredCount: () => this.filteredCount,
+      getLastEventAt: () => this.lastEventAt,
       getTriggerCount: () => this.triggers.getRules().filter((r) => r.enabled).length,
       hasLlmKey: () => Boolean(this.config.llm.apiKey),
       getJukebox: () => {
@@ -345,7 +388,25 @@ class VtuberService {
       },
     }))
 
-    this.ws.handlers.registerAll(buildMcpModule(this.mcp))
+    this.ws.handlers.registerAll(buildMcpModule(this.mcp, { gateway: this.gateway }))
+    this.ws.handlers.registerAll(buildLlmModelsModule({
+      getConfig: () => this.config.llm,
+      save: () => {
+        saveConfig(this.config, this.configPath)
+        this.applyConfigRuntime()
+      },
+    }))
+    this.ws.handlers.registerAll(buildOutputFontModule({
+      getConfig: () => this.config,
+      configPath: this.configPath,
+      save: (mutate) => {
+        mutate(this.config)
+        saveConfig(this.config, this.configPath)
+        this.applyConfigRuntime()
+        // 与 config 模块一致：通知展示板等页面即时刷新
+        this.ws.broadcast('webui', 'config.changed', { ok: true })
+      },
+    }))
     this.ws.handlers.registerAll(buildConfigModule({
       getConfig: () => this.config,
       setConfig: (c) => { this.config = c },
@@ -358,6 +419,12 @@ class VtuberService {
           this.lastMcpJson = mcpJson
           void this.mcp.reconnectAll().catch(() => {})
         }
+        // 歌曲信息输出配置（模板/输出列表/queue 元素格式）变更 → 立即重写输出文件
+        const npJson = JSON.stringify(this.config.music.nowPlaying)
+        if (npJson !== this.lastNowPlayingJson) {
+          this.lastNowPlayingJson = npJson
+          this.jukebox.refreshNowPlayingOutputs()
+        }
         this.bus.emit('config.changed', this.config)
         void this.loginManager.restoreFrom(this.config.music.sessions)
         this.ws.broadcast('webui', 'config.changed', { ok: true })
@@ -367,11 +434,13 @@ class VtuberService {
     this.ws.handlers.registerAll(buildEventModule({
       getConfig: () => this.config.events,
       onEvent: (e) => this.onEvent(e),
+      onFiltered: () => { this.filteredCount++ },
+      db: this.db,
     }))
 
     this.ws.handlers.registerAll(buildJukeboxModule(this.jukebox))
     this.ws.handlers.registerAll(buildMusicLoginModule(this.loginManager))
-    this.ws.handlers.registerAll(buildTtsModule(this.ttsEngine, this.audioCpp))
+    this.ws.handlers.registerAll(buildTtsModule(this.ttsEngine, this.audioCpp, this.jukebox))
     this.ws.handlers.registerAll(buildCppModule(this.audioCpp, this.live2dCpp))
     this.ws.handlers.registerAll(buildLive2dModule({
       cpp: this.live2dCpp,
@@ -432,6 +501,37 @@ class VtuberService {
 
       let pathname = (req.url || '/').split('?')[0]
       if (pathname === '/') pathname = '/index.html'
+
+      // 自定义字体目录（展示板 @font-face 引用 /fonts/<file>）
+      if (pathname.startsWith('/fonts/')) {
+        const fontsRoot = fontsDir(this.configPath)
+        const fontPath = path.join(fontsRoot, pathname.slice('/fonts/'.length).replace(/\\/g, '/'))
+        if (!fontPath.startsWith(fontsRoot)) {
+          res.writeHead(403)
+          res.end('forbidden')
+          return
+        }
+        fs.readFile(fontPath, (fontErr, fontData) => {
+          if (fontErr) {
+            res.writeHead(404)
+            res.end('not found')
+            return
+          }
+          const fontMime: Record<string, string> = {
+            '.woff2': 'font/woff2',
+            '.woff': 'font/woff',
+            '.ttf': 'font/ttf',
+            '.otf': 'font/otf',
+          }
+          res.writeHead(200, {
+            'Content-Type': fontMime[path.extname(fontPath).toLowerCase()] ?? 'application/octet-stream',
+            'Cache-Control': 'no-cache',
+          })
+          res.end(fontData)
+        })
+        return
+      }
+
       const filePath = path.join(rendererDir, pathname)
       if (!filePath.startsWith(rendererDir)) {
         res.writeHead(403)
@@ -455,7 +555,16 @@ class VtuberService {
     })
 
     const { host, httpPort } = this.config.server
-    this.httpServer.listen(httpPort, host, () => {
+    // httpPort 被占时必须捕获 error，否则 uncaughtException 且 WebUI 静默死亡
+    this.httpServer.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`[http] WebUI 端口 ${httpPort} 已被占用，WebUI 不可用（RPC 端口不受影响）`)
+      } else {
+        console.error('[http] WebUI 服务器错误:', err.message)
+      }
+    });
+    this.retention.start()
+        this.httpServer.listen(httpPort, host, () => {
       console.log(`[http] WebUI: http://${host}:${httpPort}`)
     })
   }
@@ -495,10 +604,17 @@ class VtuberService {
       else console.log('[live2d-cpp] Live2D 执行器未运行（可在控制台「启动 C++ 执行器」）')
     }
 
+    // 点歌机自动上线（执行器未就绪也安全：advance 自带退避重试，连上后 onPlayerReconnected 续播）
+    if (this.config.music.autoStartJukebox) {
+      const r = this.jukebox.start()
+      console.log(`[jukebox] 自动上线: ${r.message}`)
+    }
+
     console.log('[vtuber] 逻辑服务就绪')
   }
 
   async stop(): Promise<void> {
+    try { this.retention?.stop(); this.db?.close(); } catch { /* 忽略 */ }
     this.triggers.stop()
     this.ttsEngine.stopSweeper()
     this.stopIdleScheduler()

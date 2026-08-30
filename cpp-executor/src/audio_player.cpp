@@ -257,6 +257,7 @@ nlohmann::json AudioPlayer::Play(const nlohmann::json& params) {
   CloseSlot(slot);
   slot.url = params.value("url", "");
   slot.title = params.value("title", "");
+  const double positionMs = params.value("positionMs", 0.0);
   slot.device = params.value("device", "");
   slot.volume = params.value("volume", slot.volume);
   if (slot.volume < 0) slot.volume = 0;
@@ -308,6 +309,16 @@ nlohmann::json AudioPlayer::Play(const nlohmann::json& params) {
   if (FAILED(SetPcmOutput(slot.reader))) {
     CloseSlot(slot);
     return {{"ok", false}, {"error", "unsupported audio format"}, {"channel", channel}};
+  }
+
+  // 可选起始偏移（拖动进度条：Node 侧 seek = 带偏移重放）
+  if (positionMs > 0) {
+    PROPVARIANT pos{};
+    pos.vt = VT_I8;
+    pos.hVal.QuadPart = static_cast<LONGLONG>(positionMs) * 10000; // 100ns 单位
+    if (FAILED(slot.reader->SetCurrentPosition(GUID_NULL, pos))) {
+      LogLine("[player] SetCurrentPosition failed, playing from start");
+    }
   }
 
   WAVEFORMATEX* format = nullptr;

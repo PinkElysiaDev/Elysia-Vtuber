@@ -68,6 +68,34 @@ export interface NowPlaying {
   lyrics: Lyrics | null
   startedAt: number
   paused: boolean
+  /** 暂停开始时刻（恢复时清空并累计入 pausedAccumMs） */
+  pausedAt?: number
+  /** 累计暂停时长（ms），用于 elapsed 修正 */
+  pausedAccumMs: number
+  /** seek 起始偏移（ms） */
+  offsetMs: number
+}
+
+/** 播放记录（落盘 data/play-history.json，上限 500） */
+export interface PlayHistoryRecord {
+  /** 队列项 id（同曲重播会有多条） */
+  id: string
+  title: string
+  artist: string
+  source: string
+  songId: string
+  duration: number
+  cover: string
+  userId: string
+  userName: string
+  /** 点歌时间（入队时刻） */
+  requestedAt: number
+  /** 播放时间（开播时刻） */
+  startedAt: number
+  /** 结束时刻；播放中为 undefined */
+  endedAt?: number
+  /** completed=播完 skipped=跳过 interrupted=中断 failed=失败；播放中为 undefined */
+  status?: 'completed' | 'skipped' | 'interrupted' | 'failed'
 }
 
 export class MusicError extends Error {

@@ -32,3 +32,4 @@ backend/data/
 # 运行时配置（含登录 session 等凭据，不入库；模板见 config.example.json）
 backend/backend-config.json
 release/
+*.bak

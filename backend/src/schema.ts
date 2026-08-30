@@ -19,6 +19,11 @@ export type SchemaType =
   | 'select'
   | 'password'
   | 'json'
+  | 'kv'
+  | 'font'
+  | 'output'
+  | 'npOutputs'
+  | 'directOrderCard'
   | 'object'
   | 'array'
   | 'triggers'
@@ -40,6 +45,11 @@ export interface FieldSchema {
   step?: number
   /** 依赖：仅在父字段满足条件时显示 */
   dependsOn?: { field: string; value: unknown }
+  /** kv 类型：加行按钮文案 */
+  itemLabel?: string
+  /** kv 类型：键/值输入框 placeholder */
+  keyPlaceholder?: string
+  valuePlaceholder?: string
   /** 长文本用多行输入 */
   multiline?: boolean
   /** 下拉选项来源 RPC（如 audio.devices，前端异步拉取填充 select） */
@@ -77,7 +87,6 @@ export function buildConfigSchema(): SectionSchema[] {
       title: '事件接收',
       description: '配置接收哪些直播间事件（来自 adapter-bililive）；总开关在「战术仪表盘」房间号卡片处切换',
       fields: {
-        'events.enabled': { type: 'boolean', label: '事件接收总开关（默认关闭，在仪表盘卡片点击启动）', default: false },
         'events.enabledEvents': {
           type: 'object',
           label: '事件开关',
@@ -110,29 +119,13 @@ export function buildConfigSchema(): SectionSchema[] {
       },
     },
     {
-      key: 'llm',
-      title: 'LLM 大模型',
-      description: '模型网关：支持 chat-completions / anthropic / gemini / responses 协议；系统提示词在「提示词调试工坊」面板编辑',
+      key: 'dataRetention',
+      title: '数据持久化',
+      description: '数据库中的播放记录与事件历史的保留时长；0 = 永久保留。清理每 6 小时执行一次',
       fields: {
-        'llm.provider': {
-          type: 'select',
-          label: '协议',
-          options: [
-            { label: 'OpenAI Chat Completions', value: 'openai' },
-            { label: 'Anthropic Messages', value: 'anthropic' },
-            { label: 'Google Gemini', value: 'gemini' },
-            { label: 'OpenAI Responses', value: 'responses' },
-          ],
-          default: d.llm.provider,
-        },
-        'llm.baseURL': { type: 'string', label: '接口地址 Base URL', default: d.llm.baseURL },
-        'llm.apiKey': { type: 'password', label: 'API Key', default: d.llm.apiKey },
-        'llm.model': { type: 'string', label: '模型名称', default: d.llm.model },
-        'llm.customHeaders': { type: 'json', label: '自定义请求头 (JSON)', default: {} },
-        'llm.temperature': { type: 'number', label: '温度', min: 0, max: 2, default: 0.7 },
-        'llm.maxTokens': { type: 'number', label: '最大 Token', min: 1, default: 2000 },
-        'llm.topP': { type: 'number', label: 'Top P', min: 0, max: 1, default: 1 },
-        'llm.timeoutMs': { type: 'number', label: '超时 (ms)', min: 1000, default: 60000 },
+        'dataRetention.playHistoryDays': { type: 'number', label: '播放记录保留(天)', description: 'SQLite 中播放记录的保留天数，0 = 永久保留', min: 0, default: 90 },
+        'dataRetention.eventHistoryDays': { type: 'number', label: '事件历史保留(天)', description: 'SQLite 中直播事件历史的保留天数，0 = 永久保留', min: 0, default: 30 },
+        'dataRetention.frontendLogMax': { type: 'number', label: '前端事件日志上限(条)', description: 'WebUI 事件流面板最多显示的条数（仅影响显示，不影响存储）', min: 50, default: 200 },
       },
     },
     {
@@ -172,29 +165,13 @@ export function buildConfigSchema(): SectionSchema[] {
       title: '输出策略',
       description: '模型回复的分发方式：弹幕 / 展示板 / 语音',
       fields: {
-        'output.danmaku.enabled': { type: 'boolean', label: '发送弹幕', default: true },
-        'output.danmaku.ratePerMinute': { type: 'number', label: '弹幕频率上限(条/分)', min: 1, default: 20 },
-        'output.display.enabled': { type: 'boolean', label: '渲染到展示板', default: true },
-        'output.display.fontSize': { type: 'number', label: '展示板字号（未实现，暂不生效）', min: 10, max: 96, default: 28 },
-        'output.display.style': {
-          type: 'select',
-          label: '展示板样式',
-          options: [
-            { label: '气泡', value: 'bubble' },
-            { label: '字幕', value: 'subtitle' },
-            { label: 'Markdown', value: 'markdown' },
-          ],
-          default: 'bubble',
-        },
-        'output.tts.enabled': { type: 'boolean', label: 'TTS 语音朗读', default: false },
-        'output.tts.delayBeforeSpeakMs': { type: 'number', label: '语音前停顿(ms)', min: 0, default: 600 },
+        output: { type: 'output', label: '输出策略', default: d.output },
       },
     },
     {
       key: 'music',
-      title: '点歌机',
-      description: '音源、队列、直接点歌与歌曲信息输出（嵌入「点歌机运营中台」面板）',
-      pane: 'jukebox',
+      title: '点歌机配置',
+      description: '点歌指令、点歌机核心参数与歌曲信息文本输出；搜索/队列/播放控制在「点歌机运营中台」面板',
       fields: {
         'music.defaultSource': {
           type: 'select',
@@ -211,11 +188,13 @@ export function buildConfigSchema(): SectionSchema[] {
         },
         'music.maxDuration': { type: 'number', label: '歌曲时长上限(秒)', min: 0, default: 360 },
         'music.maxQueueSize': { type: 'number', label: '队列上限', min: 1, default: 50 },
-        'music.maxPerUser': { type: 'number', label: '每用户点歌上限', min: 1, default: 3 },
-        // 直接点歌（enabled/keywords/channelCommands）在点歌机面板「ORDER COMMANDS」专用卡片编辑
-        // 空闲歌单（idlePlaylist/idleLoop）在点歌机面板「IDLE PLAYLIST」专用卡片编辑
-        // 歌曲信息文本输出（多文件 + 变量模板）在点歌机面板「NOW PLAYING OUTPUTS」专用卡片编辑
+        'music.maxPerUser': { type: 'number', label: '播放列表内单用户最大点歌数', min: 1, default: 3 },
         'music.nowPlaying.windowEnabled': { type: 'boolean', label: '开启歌曲信息叠加页 (nowplaying.html)', default: true },
+        'music.autoStartJukebox': { type: 'boolean', label: '自动启动', default: false },
+        'music.dedupe': { type: 'boolean', label: '点歌去重', default: false },
+        'music.directOrder': { type: 'directOrderCard', label: '点歌指令配置' },
+        'music.nowPlaying.outputs': { type: 'npOutputs', label: '歌曲信息文本输出' },
+        // 空闲歌单（idlePlaylists/idleLoop）仍在点歌机中台「IDLE PLAYLIST」双栏卡片编辑
         // 播放输出设备统一在「音频中枢路由」面板配置，避免双入口
       },
     },

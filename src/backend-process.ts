@@ -7,7 +7,6 @@ import type { Config } from './config'
 
 const PORT_TIMEOUT_MS = 1000
 const POLL_MS = 300
-const RESTART_SETTLE_MS = 400
 
 export class BackendProcessManager {
   private child: ChildProcess | null = null
@@ -64,7 +63,9 @@ export class BackendProcessManager {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       })
+      this.child.stdout?.setEncoding('utf8')
       this.child.stdout?.on('data', (d) => this.logger.info(String(d).trimEnd()))
+      this.child.stderr?.setEncoding('utf8')
       this.child.stderr?.on('data', (d) => this.logger.warn(String(d).trimEnd()))
       // spawn 失败（如 nodePath 无效）以异步 error 事件发出，缺监听会导致
       // uncaughtException 拖垮整个 Koishi 进程
@@ -91,6 +92,7 @@ export class BackendProcessManager {
     }
 
     this.logger.error('backend start timeout')
+    if (this.child) { try { this.child.kill() } catch { /* already exited */ } this.child = null }
     return false
   }
 
@@ -98,25 +100,5 @@ export class BackendProcessManager {
     if (!this.child) return
     this.child.kill()
     this.child = null
-  }
-
-  async restart(): Promise<boolean> {
-    const hadChild = Boolean(this.child)
-    this.stop()
-    await new Promise((resolve) => setTimeout(resolve, RESTART_SETTLE_MS))
-    // stop 后端口仍开放：要么自家子进程尚未退完（再等一轮），要么是外部进程占用
-    if (await this.isPortOpen()) {
-      if (hadChild) {
-        await new Promise((resolve) => setTimeout(resolve, 1500))
-      }
-      if (await this.isPortOpen()) {
-        this.logger.error(
-          `restart aborted: ${this.config.host}:${this.config.wsPort} 被外部后端进程占用（非本插件拉起，无法重启）。` +
-          `请先结束它：netstat -ano | findstr :${this.config.wsPort} 查 PID，再 taskkill /PID <PID> /F`,
-        )
-        return false
-      }
-    }
-    return this.start()
   }
 }

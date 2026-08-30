@@ -8,6 +8,9 @@ export const name = 'vtuber'
 
 export { Config }
 
+// lib/index.js 运行时 require('../package.json') 解析到插件包根，避免版本号双份维护
+const packageInfo = require('../package.json') as { version: string }
+
 function formatResult(result: unknown): string {
   if (typeof result === 'string') return result
   try {
@@ -30,7 +33,7 @@ export function apply(ctx: Context, config: Config) {
 
   const processManager = new BackendProcessManager(config.backend, logger)
 
-  const bridge = new EventBridge(ctx, config, backend)
+  const bridge = new EventBridge(ctx, config, backend, logger)
   bridge.start()
 
   backend.on('danmaku.send', async (_method, params) => {
@@ -38,14 +41,15 @@ export function apply(ctx: Context, config: Config) {
     const text = String(params?.text || '')
     if (!text) return
 
-    const bot: any = ctx.bots.find((item) => item.platform === 'bililive')
+    const platform = config.danmaku.platform
+    const bot: any = ctx.bots.find((item) => item.platform === platform)
     if (!bot) {
-      logger.warn('no bililive bot available')
+      logger.warn(`no ${platform} bot available`)
       backend.notify('danmaku.sent', {
         roomId,
         text,
         ok: false,
-        error: 'no bililive bot available',
+        error: `no ${platform} bot available`,
       })
       return
     }
@@ -54,7 +58,7 @@ export function apply(ctx: Context, config: Config) {
       if (typeof bot.sendDanmaku === 'function') {
         await bot.sendDanmaku(text)
       } else {
-        await bot.sendMessage(`bililive:${roomId}`, text)
+        await bot.sendMessage(`${platform}:${roomId}`, text)
       }
       backend.notify('danmaku.sent', { roomId, text, ok: true })
     } catch (error) {
@@ -79,10 +83,25 @@ export function apply(ctx: Context, config: Config) {
     if (backend.isConnected()) {
       backend.notify('koishi.ready', {
         roomId: config.roomId,
-        pluginVersion: '0.2.0',
+        pluginVersion: packageInfo.version,
       })
     }
   })()
+
+  /**
+   * 优雅停机并等端口释放：经 WS 请求 system.shutdown（对非本插件拉起的外部进程同样有效，
+   * 后端会先通知 C++ 执行器退出再自行退出），轮询至多 10s；返回端口是否已释放。
+   */
+  const gracefulShutdownAndDrain = async (): Promise<boolean> => {
+    if (backend.isConnected()) {
+      await backend.request('system.shutdown').catch(() => {})
+    }
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline && await processManager.isPortOpen()) {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
+    return !(await processManager.isPortOpen())
+  }
 
   ctx.command('vtuber.status', '查看逻辑服务状态')
     .action(async () => formatResult(await backend.request('system.status')))
@@ -96,15 +115,8 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.command('vtuber.stop', '停止逻辑服务')
     .action(async () => {
-      if (backend.isConnected()) {
-        await backend.request('system.shutdown').catch(() => {})
-      }
-      // 等待后端优雅退出（含通知 C++ 执行器退出），超时再兜底 kill，
-      // 避免执行器/后端被硬杀后变成孤儿进程
-      const deadline = Date.now() + 10_000
-      while (Date.now() < deadline && await processManager.isPortOpen()) {
-        await new Promise((resolve) => setTimeout(resolve, 300))
-      }
+      // 优雅退出（含通知 C++ 执行器退出），避免硬杀把执行器/后端变成孤儿进程
+      await gracefulShutdownAndDrain()
       backend.disconnect()
       processManager.stop()
       return '已停止逻辑服务'
@@ -112,12 +124,26 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.command('vtuber.restart', '重启逻辑服务')
     .action(async () => {
+      // 先经 RPC 优雅关闭旧实例——对外部启动的进程同样有效，不要求由本插件拉起
+      const drained = await gracefulShutdownAndDrain()
       backend.disconnect()
-      const ok = await processManager.restart()
-      if (ok) await backend.connect().catch(() => {})
-      return ok
-        ? '逻辑服务已重启'
-        : '逻辑服务重启失败：端口可能被外部进程占用（非本插件拉起），处理指引见 Koishi 控制台日志'
+      processManager.stop()
+      if (!drained) {
+        logger.error(
+          `restart aborted: ${config.backend.host}:${config.backend.wsPort} 仍被占用且无法经 RPC 关闭。` +
+          `请手动结束：netstat -ano | findstr :${config.backend.wsPort} 查 PID，再 taskkill /PID <PID> /F`,
+        )
+        return '逻辑服务重启失败：旧进程未能退出，处理指引见 Koishi 控制台日志'
+      }
+      const ok = await processManager.start()
+      if (ok && !backend.isConnected()) await backend.connect().catch(() => {})
+      if (backend.isConnected()) {
+        backend.notify('koishi.ready', {
+          roomId: config.roomId,
+          pluginVersion: packageInfo.version,
+        })
+      }
+      return ok ? '逻辑服务已重启' : '逻辑服务启动失败'
     })
 
   ctx.command('vtuber.jukebox status', '查看点歌机状态')

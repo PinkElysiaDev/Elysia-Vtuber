@@ -71,15 +71,30 @@ export class ProviderRegistry {
     return this.resolve(meta.provider).getMediaLyric(meta)
   }
 
-  /** 歌单链接/ID → 歌曲列表：遍历实现了 PlaylistCapable 的 provider */
-  async playlist(ref: string): Promise<{ provider: string; items: MediaInfo[] } | null> {
+  /** 歌单链接/ID → 歌曲列表：preferred 优先，其余按注册序 fallthrough */
+  async playlist(ref: string, preferred?: string): Promise<{ provider: string; items: MediaInfo[] } | null> {
+    const capable: MediaProvider[] = []
     for (const provider of this.providers.values()) {
       const cap = provider as MediaProvider & Partial<PlaylistCapable>
       if (typeof cap.matchPlaylist !== 'function' || typeof cap.getPlaylist !== 'function') continue
-      const hit = cap.matchPlaylist(ref)
+      capable.push(provider)
+    }
+    // preferred 排最前（纯数字歌单 ID 多家都命中，需用户选择优先）
+    if (preferred) {
+      const idx = capable.findIndex((p) => p.name === preferred)
+      if (idx > 0) capable.unshift(...capable.splice(idx, 1))
+    }
+    for (const provider of capable) {
+      const cap = provider as MediaProvider & Partial<PlaylistCapable>
+      const hit = cap.matchPlaylist!(ref)
       if (!hit) continue
-      const items = await cap.getPlaylist(hit.id)
-      return { provider: provider.name, items }
+      try {
+        const items = await cap.getPlaylist!(hit.id)
+        if (items?.length) return { provider: provider.name, items }
+      } catch (err) {
+        // 首选 provider 展开失败时 fallthrough 到下一家（而非整体报错）
+        console.warn(`[registry] playlist provider ${provider.name} failed:`, err instanceof Error ? err.message : err)
+      }
     }
     return null
   }

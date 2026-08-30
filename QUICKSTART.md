@@ -28,9 +28,9 @@ node dist/index.js
 |------|------|
 | WebUI 连不上 | `backend` 是否在跑，端口是否被占用 |
 | TTS 不响 | 火山 App ID + Token，且执行器已连接 |
-| 点歌不播 | 先 `jukebox.start`，默认音源是酷我 |
+| 点歌不播 | 先 `jukebox.start`，默认音源是酷我；进度条拖动 seek 需重编 audio_executor（C++ Play() 已支持 positionMs） |
 | 网易云 / QQ 报错 | 需要登录，当前是桩 |
 | Live2D 黑窗 | Cubism SDK 路径、`live2d.modelPath` |
-| 插件无事件 | 房间 ID 是否和 `adapter-bililive` 一致 |
+| 插件无事件（累计接收为 0） | 仪表盘计数面板有区分提示：「尚无事件到达」→ 查 Koishi 日志中 vtuber 的 "事件被丢弃/failed to ingest"（房间不匹配会限频告警，核对插件与 adapter 房间号）；「收到 N 条但全被过滤」→ 查后端事件类型开关 |
 
 不要把 `koishi.yml` 或 `backend-config.json` 里的密钥贴到聊天或仓库。

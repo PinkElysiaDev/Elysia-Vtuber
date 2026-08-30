@@ -17,18 +17,23 @@ export class BackendClient {
   }>()
   private notificationHandlers = new Map<string, NotificationHandler[]>()
 
+  /** 重连成功后回调（插件侧用来重发 koishi.ready） */
+  onReconnected: (() => void) | null = null
+
   constructor(
     private readonly host: string,
-    private readonly wsPort: number,
+    private readonly port: number,
     private readonly reconnectInterval: number,
     private readonly timeout: number,
     private readonly logger: Logger,
   ) {}
 
+  isConnected(): boolean {
+    return this.connected
+  }
+
   async connect(): Promise<void> {
     if (this.connected) return
-    // 并发防护：自动启动流程与重连定时器同时触发时复用同一连接，
-    // 否则会产生双 socket（重复通知、connected 状态错乱）
     if (this.connecting) return this.connecting
     this.manualClose = false
     this.connecting = this.doConnect()
@@ -39,63 +44,75 @@ export class BackendClient {
     }
   }
 
-  private doConnect(): Promise<void> {
-    const url = `ws://${this.host}:${this.wsPort}`
-    this.logger.info(`connecting to backend: ${url}`)
-    // 丢弃上一轮残留 socket，避免双连接
-    this.ws?.terminate()
-
+  private async doConnect(): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (this.ws) {
+        try { this.ws.terminate() } catch { /* 已关闭 */ }
+        this.ws = undefined
+      }
+      const url = `ws://${this.host}:${this.port}`
+      this.logger.info(`connecting to backend: ${url}`)
       const ws = new WebSocket(url)
       this.ws = ws
-      let opened = false
-
-      const timeoutTimer = setTimeout(() => {
-        if (!opened) {
-          ws.terminate()
-          reject(new Error('backend connection timeout'))
-        }
+      const timer = setTimeout(() => {
+        ws.terminate()
+        reject(new Error(`连接超时 (${this.timeout}ms)`))
       }, this.timeout)
-
       ws.on('open', () => {
-        opened = true
-        clearTimeout(timeoutTimer)
+        clearTimeout(timer)
         this.connected = true
-        if (this.reconnectTimer) {
-          clearTimeout(this.reconnectTimer)
-          this.reconnectTimer = undefined
-        }
-        this.logger.success('backend connected')
-        try {
-          ws.send(JSON.stringify({
-            jsonrpc: '2.0',
-            method: 'peer.declare',
-            params: { kind: 'plugin' },
-          }))
-        } catch {}
+        this.send({
+          jsonrpc: '2.0',
+          method: 'peer.declare',
+          params: { kind: 'plugin' },
+        })
+        this.onReconnected?.()
         resolve()
       })
-
-      ws.on('message', (data) => {
-        this.handleMessage(data.toString())
+      ws.on('message', (data: WebSocket.RawData) => {
+        try {
+          const msg = JSON.parse(String(data))
+          if (msg.id !== undefined && this.pending.has(msg.id)) {
+            const entry = this.pending.get(msg.id)!
+            this.pending.delete(msg.id)
+            clearTimeout(entry.timer)
+            if (msg.error) {
+              entry.reject(new Error(msg.error.message ?? 'unknown error'))
+            } else {
+              entry.resolve(msg.result)
+            }
+          } else if (msg.method !== undefined) {
+            const handlers = this.notificationHandlers.get(msg.method)
+            if (handlers) {
+              for (const handler of handlers) {
+                try {
+                  const result = handler(msg.method, msg.params)
+                  if (result instanceof Promise) result.catch(() => undefined)
+                } catch (error) {
+                  this.logger.warn(`notification handler error (${msg.method}):`, error)
+                }
+              }
+            }
+          }
+        } catch {
+          // 非 JSON 消息忽略
+        }
       })
-
       ws.on('close', () => {
+        clearTimeout(timer)
         this.connected = false
-        // 断线时立即失败所有在途请求，避免各等满一次 10s 超时
-        for (const pending of this.pending.values()) {
-          clearTimeout(pending.timer)
-          pending.reject(new Error('backend disconnected'))
+        for (const [, entry] of this.pending) {
+          clearTimeout(entry.timer)
+          entry.reject(new Error('连接已断开'))
         }
         this.pending.clear()
-        this.logger.warn('backend disconnected')
-        if (!opened) reject(new Error('backend connection closed before open'))
-        this.scheduleReconnect()
+        if (!this.manualClose) {
+          this.scheduleReconnect()
+        }
       })
-
-      ws.on('error', (error) => {
-        clearTimeout(timeoutTimer)
-        this.logger.error('backend connection error:', error)
+      ws.on('error', (error: Error) => {
+        clearTimeout(timer)
+        this.connected = false
         reject(error)
       })
     })
@@ -107,100 +124,76 @@ export class BackendClient {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = undefined
     }
-
+    if (this.ws) {
+      try { this.ws.close() } catch { /* 已关闭 */ }
+      this.ws = undefined
+    }
     this.connected = false
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer)
-      pending.reject(new Error('backend disconnected'))
+    for (const [, entry] of this.pending) {
+      clearTimeout(entry.timer)
+      entry.reject(new Error('连接已断开'))
     }
     this.pending.clear()
-    this.ws?.terminate()
-    this.ws = undefined
-  }
-
-  isConnected(): boolean {
-    return this.connected
-  }
-
-  on(method: string, handler: NotificationHandler): void {
-    const handlers = this.notificationHandlers.get(method) ?? []
-    handlers.push(handler)
-    this.notificationHandlers.set(method, handlers)
-  }
-
-  request(method: string, params: any = {}): Promise<any> {
-    if (!this.connected || !this.ws) {
-      return Promise.reject(new Error('backend not connected'))
-    }
-
-    const id = this.nextId++
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id)
-        reject(new Error(`request timeout: ${method}`))
-      }, this.timeout)
-
-      this.pending.set(id, { resolve, reject, timer })
-      try {
-        this.ws!.send(JSON.stringify({
-          jsonrpc: '2.0',
-          id,
-          method,
-          params,
-        }))
-      } catch (error) {
-        // connected 检查与 send 之间 socket 可能刚好关闭
-        this.pending.delete(id)
-        clearTimeout(timer)
-        reject(error instanceof Error ? error : new Error(String(error)))
-      }
-    })
-  }
-
-  notify(method: string, params: any = {}): void {
-    if (!this.connected || !this.ws) return
-    this.ws.send(JSON.stringify({
-      jsonrpc: '2.0',
-      method,
-      params,
-    }))
-  }
-
-  private handleMessage(raw: string): void {
-    let message: any
-    try {
-      message = JSON.parse(raw)
-    } catch {
-      this.logger.error('invalid backend message')
-      return
-    }
-
-    if (typeof message.id === 'number') {
-      const pending = this.pending.get(message.id)
-      if (!pending) return
-      this.pending.delete(message.id)
-      clearTimeout(pending.timer)
-      if (message.error) {
-        pending.reject(new Error(message.error.message || 'backend error'))
-      } else {
-        pending.resolve(message.result)
-      }
-      return
-    }
-
-    const handlers = this.notificationHandlers.get(message.method) ?? []
-    for (const handler of handlers) {
-      Promise.resolve(handler(message.method, message.params)).catch((error) => {
-        this.logger.error(`notification handler error: ${message.method}`, error)
-      })
-    }
   }
 
   private scheduleReconnect(): void {
     if (this.manualClose || this.reconnectTimer || this.connected) return
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined
-      this.connect().catch(() => {})
+      if (!this.manualClose && !this.connected) {
+        this.connect().catch((error) => {
+          this.logger.warn('reconnect failed:', error.message)
+        })
+      }
     }, this.reconnectInterval)
+  }
+
+  private send(msg: Record<string, unknown>): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    try {
+      this.ws.send(JSON.stringify(msg))
+    } catch (error) {
+      this.logger.warn('send error:', error)
+    }
+  }
+
+  request(method: string, params?: unknown): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('后端未连接'))
+        return
+      }
+      const id = this.nextId++
+      const msg: Record<string, unknown> = { jsonrpc: '2.0', id, method }
+      if (params !== undefined) msg.params = params
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error(`请求超时 (${method}, ${this.timeout}ms)`))
+      }, this.timeout)
+      this.pending.set(id, { resolve, reject, timer })
+      try {
+        this.ws.send(JSON.stringify(msg))
+      } catch (error) {
+        clearTimeout(timer)
+        this.pending.delete(id)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
+  }
+
+  notify(method: string, params?: unknown): void {
+    const msg: Record<string, unknown> = { jsonrpc: '2.0', method }
+    if (params !== undefined) msg.params = params
+    try {
+      this.send(msg)
+    } catch {
+      // 通知失败静默（fire-and-forget）
+    }
+  }
+
+  on(method: string, handler: NotificationHandler): void {
+    const list = this.notificationHandlers.get(method) ?? []
+    list.push(handler)
+    this.notificationHandlers.set(method, list)
   }
 }

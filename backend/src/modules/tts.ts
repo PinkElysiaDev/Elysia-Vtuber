@@ -1,6 +1,7 @@
 import type { RpcHandler } from '../core/rpc'
 import type { TtsEngine } from '../tts/engine'
 import type { CppClient } from '../cpp/client'
+import type { Jukebox } from '../music/jukebox'
 
 /**
  * 生成约 0.7s 的双音阶提示音（A5→D6，指数衰减包络）。
@@ -36,7 +37,7 @@ function buildTestChime(): number[] {
   return [...Buffer.concat([header, data])]
 }
 
-export function buildTtsModule(engine: TtsEngine, cpp: CppClient): Record<string, RpcHandler> {
+export function buildTtsModule(engine: TtsEngine, cpp: CppClient, jukebox?: Jukebox): Record<string, RpcHandler> {
   return {
     'tts.speak': async (params) => {
       const text = String((params as any)?.text ?? '')
@@ -58,6 +59,12 @@ export function buildTtsModule(engine: TtsEngine, cpp: CppClient): Record<string
 
       if (!cpp.isConnected()) {
         return { ok: false, error: 'C++ 执行器未连接，无法播放测试音' }
+      }
+
+      // music 通道与点歌机同源：交给 jukebox 暂停式播放并在测试后断点续播原曲
+      if (channel === 'music' && jukebox) {
+        return jukebox.testChime({ device, volume, bytes: buildTestChime() })
+          .catch(err => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
       }
 
       return cpp.safeRequest('player.play', {

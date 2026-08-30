@@ -1,4 +1,4 @@
-import type { Context } from 'koishi'
+import type { Context, Logger } from 'koishi'
 import type { Config } from './config'
 import { BackendClient } from './backend-client'
 
@@ -19,28 +19,77 @@ export interface StandardEvent {
   data: Record<string, unknown>
 }
 
+/**
+ * satori Session 只代理固定字段清单（type/userId/channelId/guildId...），
+ * adapter dispatchCustom 附加的 roomId 以及原始载荷（msg/uname/gift_name/room_id...）
+ * 都存在 session.event 内部。这里做合并视图：顶层访问器优先，原始字段兜底。
+ */
+function mergedView(session: any): any {
+  return { ...(session?.event ?? {}), ...session }
+}
+
+/** 房间号候选（含 "live:<roomId>" 形式的 channelId），任一命中即本房间 */
+function roomMatched(view: any, roomId: string): boolean {
+  const candidates = [
+    view?.roomId,
+    view?.room_id,
+    typeof view?.channelId === 'string' && view.channelId.startsWith('live:')
+      ? view.channelId.slice(5)
+      : typeof view?.channel?.id === 'string' && view.channel.id.startsWith('live:')
+        ? view.channel.id.slice(5)
+        : undefined,
+  ]
+  return candidates.some((value) => String(value ?? '') === roomId)
+}
+
+const DISCONNECT_QUEUE_MAX = 100
+
 export class EventBridge {
+  private lastMismatchLogAt = 0
+  /** 断线期间的事件队列（重连后批量补发，上限 100 条防内存膨胀） */
+  private disconnectQueue: Array<{ roomId: string; event: StandardEvent }> = []
+
   constructor(
     private readonly ctx: Context,
     private readonly config: Config,
     private readonly backend: BackendClient,
+    private readonly logger: Logger,
   ) {}
 
   start(): void {
-    const enabled = this.config.events
     const roomId = String(this.config.roomId)
 
-    const bind = (eventName: string, normalize: (session: any) => StandardEvent) => {
+    const bind = (eventName: string, normalize: (view: any) => StandardEvent) => {
       this.ctx.on(eventName as any, (session: any) => {
-        if (String(session.roomId ?? session.room_id ?? '') !== roomId) return
-        const event = normalize(session)
-        this.backend.request('event.ingest', { roomId, event }).catch((error) => {
-          this.ctx.logger('vtuber').warn(`failed to ingest ${event.type}:`, error)
-        })
+        const view = mergedView(session)
+        if (!roomMatched(view, roomId)) {
+          // 限频告警：房间不匹配是静默丢事件的头号原因，必须可见
+          const now = Date.now()
+          if (now - this.lastMismatchLogAt > 5 * 60 * 1000) {
+            this.lastMismatchLogAt = now
+            this.logger.warn(
+              `事件被丢弃：房间不匹配（配置 roomId=${roomId}，事件候选=[${[view?.roomId, view?.room_id, view?.channelId].map((v) => String(v ?? '')).join(', ')}]）。` +
+              '请核对插件 roomId 与 adapter-bililive 的房间号',
+            )
+          }
+          return
+        }
+        const event = normalize(view)
+        if (this.backend.isConnected()) {
+          this.backend.request('event.ingest', { roomId, event }).catch((error) => {
+            this.logger.warn(`failed to ingest ${event.type}:`, error)
+          })
+        } else {
+          // 断线：入队等待重连补发
+          if (this.disconnectQueue.length < DISCONNECT_QUEUE_MAX) {
+            this.disconnectQueue.push({ roomId, event })
+          }
+        }
       })
     }
 
-    const bindings: Array<[keyof typeof enabled, string, (s: any) => Record<string, unknown>]> = [
+    // 全部 9 类事件无条件转发，是否接收/过滤由后端 events 配置统一决定
+    const bindings: Array<[string, string, (s: any) => Record<string, unknown>]> = [
       ['danmaku', 'bililive/danmaku', (s) => ({ content: s.content ?? s.msg ?? s.message ?? '' })],
       ['gift', 'bililive/gift', (s) => ({
         giftName: s.giftName ?? s.gift_name,
@@ -67,28 +116,30 @@ export class EventBridge {
       ['liveEnd', 'bililive/live-end', () => ({})],
     ]
 
-    for (const [flag, eventName, mapper] of bindings) {
-      if (enabled[flag]) bind(eventName, (s) => this.standard(s, flag as string, mapper(s)))
+    for (const [type, eventName, mapper] of bindings) {
+      bind(eventName, (view) => this.standard(view, type, mapper(view)))
     }
   }
 
-  private standard(session: any, type: string, data: Record<string, unknown>): StandardEvent {
+  private standard(view: any, type: string, data: Record<string, unknown>): StandardEvent {
     // 开放平台 guard 事件的用户信息嵌在 user_info 里；web 模式用 medalName/medalLevel
-    const uid = String(session.userId ?? session.uid ?? session.user_info?.uid ?? session.open_id ?? '')
-    const name = session.username || session.userName || session.uname || session.user_info?.uname || session.user?.name || ''
+    const uid = String(view.userId ?? view.uid ?? view.user_info?.uid ?? view.user?.id ?? view.open_id ?? '')
+    const name = String(view.username || view.userName || view.uname || view.user_info?.uname || view.user?.name || '')
+    const medalName = view.fansMedal?.name ?? view.fans_medal_name ?? view.medalName
+    const medalLevel = view.fansMedal?.level ?? view.fans_medal_level ?? view.medalLevel
     return {
       type,
       timestamp: Date.now(),
-      roomId: String(session.roomId ?? session.room_id ?? this.config.roomId),
+      roomId: String(view.roomId ?? view.room_id ?? this.config.roomId),
       user: uid ? {
         uid,
         name,
-        face: session.userFace || session.uface || session.user_info?.uface || session.user?.avatar,
-        fansMedal: (session.fansMedal || session.fans_medal_name || session.medalName) ? {
-          name: session.fansMedal?.name ?? session.fans_medal_name ?? session.medalName ?? '',
-          level: session.fansMedal?.level ?? session.fans_medal_level ?? session.medalLevel ?? 0,
+        face: String(view.userFace || view.uface || view.user_info?.uface || view.user?.avatar || ''),
+        fansMedal: medalName ? {
+          name: String(medalName ?? ''),
+          level: Number(medalLevel ?? 0),
         } : undefined,
-        guardLevel: session.guardLevel ?? session.guard_level,
+        guardLevel: view.guardLevel ?? view.guard_level,
       } : undefined,
       data,
     }

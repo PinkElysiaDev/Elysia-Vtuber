@@ -1,393 +1,89 @@
-import type { LLMConfig } from '../config'
+/**
+ * LLM 网关（薄适配层）：内部 ChatMessage/ToolSpec ↔ canonical 转换，
+ * 协议编码/HTTP 发送/解码全部委托 @elysia-ai/request-kit 的 chatCanonical
+ * （其内部经 @elysia-ai 协议包转换、并由 request-kit 自己的 buildRequest 发送——全生态唯一一份 LLM 客户端实现）。
+ */
+import type { LLMConfig, LlmModelProfile, LlmThinkingConfig } from '../config'
 import type { ChatMessage, ChatRequest, ChatResult, ToolCall, ToolSpec } from './types'
+import {
+  chatCanonical,
+  chatText,
+  canonicalResponseText,
+  type LlmEndpointConfig,
+  type LlmProvider,
+  type SimpleMessage,
+  type SimplePart,
+} from '@elysia-ai/request-kit'
+
+/** canonical 类型经 request-kit 导出推导，避免 CJS 直接 import ESM 包的类型声明 */
+type CanonicalRequest = Parameters<typeof chatCanonical>[0]
+type CanonicalResponse = Awaited<ReturnType<typeof chatCanonical>>
 
 const DEFAULT_TIMEOUT_MS = 60000
-const ERROR_TRUNCATE = 500
 
-function defaultParams(tool: ToolSpec): Record<string, unknown> {
-  return tool.parameters ?? { type: 'object', properties: {} }
+const DEFAULT_BASE: Record<LlmProvider, string> = {
+  openai: 'https://api.openai.com/v1',
+  responses: 'https://api.openai.com/v1',
+  anthropic: 'https://api.anthropic.com/v1',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta',
 }
 
-function toOpenAITools(tools: ToolSpec[]): unknown[] {
-  return tools.map((tool) => ({
-    type: 'function',
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: defaultParams(tool),
-    },
-  }))
+function toProvider(provider: string): LlmProvider {
+  const value = (provider || 'openai').trim().toLowerCase()
+  if (value === 'anthropic' || value === 'gemini' || value === 'responses') return value
+  return 'openai'
 }
 
-function toResponsesTools(tools: ToolSpec[]): unknown[] {
-  return tools.map((tool) => ({
-    type: 'function',
-    name: tool.name,
-    description: tool.description,
-    parameters: defaultParams(tool),
-  }))
-}
-
-function toAnthropicTools(tools: ToolSpec[]): unknown[] {
-  return tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    input_schema: defaultParams(tool),
-  }))
-}
-
-function toGeminiTools(tools: ToolSpec[]): unknown[] {
-  return [{
-    functionDeclarations: tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: defaultParams(tool),
-    })),
-  }]
-}
-
-export class LLMGateway {
-  constructor(private config: LLMConfig) {}
-
-  setConfig(config: LLMConfig): void {
-    this.config = config
-  }
-
-  getConfig(): LLMConfig {
-    return this.config
-  }
-
-  async chat(request: ChatRequest): Promise<ChatResult> {
-    if (!this.config.apiKey) {
-      throw new Error('LLM apiKey 未配置')
+/** 内部消息 → canonical。tool_calls 的 arguments 统一序列化为字符串（四协议编码器均接受，OpenAI 侧只认字符串）。 */
+function toCanonical(request: ChatRequest, model: string): CanonicalRequest {
+  const instructions: string[] = []
+  const messages: CanonicalRequest['messages'] = []
+  for (const msg of request.messages) {
+    if (msg.role === 'system') {
+      if (msg.content) instructions.push(msg.content)
+      continue
     }
-    const provider = (this.config.provider || 'openai').toLowerCase()
-    if (provider === 'anthropic') return this.chatAnthropic(request)
-    if (provider === 'gemini') return this.chatGemini(request)
-    if (provider === 'responses') return this.chatResponses(request)
-    return this.chatOpenAI(request)
-  }
-
-  private async chatOpenAI(request: ChatRequest): Promise<ChatResult> {
-    const body: Record<string, unknown> = {
-      model: this.config.model,
-      messages: request.messages.map(toOpenAIMessage),
-      temperature: this.config.temperature,
-      max_tokens: this.config.maxTokens,
-      top_p: this.config.topP,
-    }
-    if (request.tools?.length) {
-      body.tools = toOpenAITools(request.tools)
-    }
-
-    const data = await this.postJson(this.joinUrl(this.base('https://api.openai.com/v1'), '/chat/completions'), body, {
-      Authorization: `Bearer ${this.config.apiKey}`,
-    })
-    const choice = data?.choices?.[0] ?? {}
-    const message = choice.message ?? {}
-    const toolCalls: ToolCall[] = []
-    for (const call of message.tool_calls ?? []) {
-      toolCalls.push({
-        id: String(call.id ?? `call_${toolCalls.length}`),
-        name: String(call.function?.name ?? ''),
-        arguments: parseArgs(call.function?.arguments),
-      })
-    }
-    return {
-      content: typeof message.content === 'string' ? message.content : '',
-      finishReason: String(choice.finish_reason ?? ''),
-      toolCalls,
-    }
-  }
-
-  private async chatResponses(request: ChatRequest): Promise<ChatResult> {
-    const input: unknown[] = []
-    for (const msg of request.messages) {
-      if (msg.role === 'system') {
-        input.push({ role: 'system', content: msg.content })
-      } else if (msg.role === 'assistant') {
-        if (msg.toolCalls?.length) {
-          input.push({
-            type: 'function_call',
-            call_id: msg.toolCalls[0].id,
-            name: msg.toolCalls[0].name,
-            arguments: JSON.stringify(msg.toolCalls[0].arguments ?? {}),
-          })
-          for (const extra of msg.toolCalls.slice(1)) {
-            input.push({
-              type: 'function_call',
-              call_id: extra.id,
-              name: extra.name,
-              arguments: JSON.stringify(extra.arguments ?? {}),
-            })
-          }
-        } else {
-          input.push({ role: 'assistant', content: msg.content })
-        }
-      } else if (msg.role === 'tool') {
-        input.push({
-          type: 'function_call_output',
-          call_id: msg.toolCallId ?? '',
-          output: msg.content,
-        })
-      } else {
-        input.push({ role: 'user', content: msg.content })
-      }
-    }
-
-    const body: Record<string, unknown> = {
-      model: this.config.model,
-      input,
-      temperature: this.config.temperature,
-      max_output_tokens: this.config.maxTokens,
-    }
-    if (request.tools?.length) {
-      body.tools = toResponsesTools(request.tools)
-    }
-
-    const data = await this.postJson(this.joinUrl(this.base('https://api.openai.com/v1'), '/responses'), body, {
-      Authorization: `Bearer ${this.config.apiKey}`,
-    })
-
-    let content = ''
-    const toolCalls: ToolCall[] = []
-    const output = Array.isArray(data?.output) ? data.output : []
-    for (const item of output) {
-      if (item.type === 'message') {
-        for (const part of item.content ?? []) {
-          if (part.type === 'output_text' || part.type === 'text') content += part.text ?? ''
-        }
-      } else if (item.type === 'function_call') {
-        toolCalls.push({
-          id: String(item.call_id ?? item.id ?? `call_${toolCalls.length}`),
-          name: String(item.name ?? ''),
-          arguments: parseArgs(item.arguments),
-        })
-      }
-    }
-    if (!content && typeof data?.output_text === 'string') content = data.output_text
-
-    return {
-      content,
-      finishReason: String(data?.status ?? ''),
-      toolCalls,
-    }
-  }
-
-  private async chatAnthropic(request: ChatRequest): Promise<ChatResult> {
-    let system = ''
-    const messages: Array<{ role: string; content: unknown }> = []
-    for (const msg of request.messages) {
-      if (msg.role === 'system') {
-        system += (system ? '\n' : '') + msg.content
-        continue
-      }
-      if (msg.role === 'tool') {
-        messages.push({
-          role: 'user',
-          content: [{
-            type: 'tool_result',
-            tool_use_id: msg.toolCallId ?? '',
-            content: msg.content,
-          }],
-        })
-        continue
-      }
-      if (msg.role === 'assistant' && msg.toolCalls?.length) {
-        const blocks: unknown[] = []
-        if (msg.content) blocks.push({ type: 'text', text: msg.content })
-        for (const call of msg.toolCalls) {
-          blocks.push({
-            type: 'tool_use',
-            id: call.id,
-            name: call.name,
-            input: call.arguments ?? {},
-          })
-        }
-        messages.push({ role: 'assistant', content: blocks })
-        continue
-      }
+    if (msg.role === 'tool') {
+      const callId = msg.toolCallId ?? ''
       messages.push({
-        role: msg.role === 'assistant' ? 'assistant' : 'user',
-        content: msg.content,
+        role: 'tool',
+        name: msg.name,
+        tool_call_id: callId,
+        content: [{ type: 'tool_output', tool_call_id: callId, tool_output: msg.content }],
       })
+      continue
     }
-
-    const body: Record<string, unknown> = {
-      model: this.config.model,
-      max_tokens: this.config.maxTokens,
-      temperature: this.config.temperature,
-      messages,
-    }
-    if (system) body.system = system
-    if (request.tools?.length) {
-      body.tools = toAnthropicTools(request.tools)
-    }
-
-    const data = await this.postJson(this.joinUrl(this.base('https://api.anthropic.com/v1'), '/messages'), body, {
-      'x-api-key': this.config.apiKey,
-      'anthropic-version': '2023-06-01',
-    })
-
-    let content = ''
-    const toolCalls: ToolCall[] = []
-    for (const block of data?.content ?? []) {
-      if (block.type === 'text') content += block.text ?? ''
-      if (block.type === 'tool_use') {
-        toolCalls.push({
-          id: String(block.id ?? `call_${toolCalls.length}`),
-          name: String(block.name ?? ''),
-          arguments: (block.input && typeof block.input === 'object') ? block.input : {},
-        })
-      }
-    }
-    return {
-      content,
-      finishReason: String(data?.stop_reason ?? ''),
-      toolCalls,
-    }
-  }
-
-  private async chatGemini(request: ChatRequest): Promise<ChatResult> {
-    let system = ''
-    const contents: unknown[] = []
-    for (const msg of request.messages) {
-      if (msg.role === 'system') {
-        system += (system ? '\n' : '') + msg.content
-        continue
-      }
-      if (msg.role === 'tool') {
-        contents.push({
-          role: 'user',
-          parts: [{
-            functionResponse: {
-              name: msg.name ?? '',
-              response: parseJsonOrText(msg.content),
-            },
-          }],
-        })
-        continue
-      }
-      if (msg.role === 'assistant' && msg.toolCalls?.length) {
-        const parts: unknown[] = []
-        if (msg.content) parts.push({ text: msg.content })
-        for (const call of msg.toolCalls) {
-          parts.push({ functionCall: { name: call.name, args: call.arguments ?? {} } })
-        }
-        contents.push({ role: 'model', parts })
-        continue
-      }
-      contents.push({
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.content }],
-      })
-    }
-
-    const body: Record<string, unknown> = {
-      contents,
-      generationConfig: {
-        temperature: this.config.temperature,
-        maxOutputTokens: this.config.maxTokens,
-        topP: this.config.topP,
-      },
-    }
-    if (system) body.systemInstruction = { parts: [{ text: system }] }
-    if (request.tools?.length) {
-      body.tools = toGeminiTools(request.tools)
-    }
-
-    const base = this.base('https://generativelanguage.googleapis.com/v1beta')
-    const url = `${this.joinUrl(base, `/models/${this.config.model}:generateContent`)}?key=${encodeURIComponent(this.config.apiKey)}`
-    const data = await this.postJson(url, body, {})
-    const candidate = data?.candidates?.[0] ?? {}
-    let content = ''
-    const toolCalls: ToolCall[] = []
-    for (const part of candidate.content?.parts ?? []) {
-      if (typeof part.text === 'string') content += part.text
-      if (part.functionCall) {
-        toolCalls.push({
-          id: `call_${toolCalls.length}`,
-          name: String(part.functionCall.name ?? ''),
-          arguments: (part.functionCall.args && typeof part.functionCall.args === 'object')
-            ? part.functionCall.args
-            : {},
-        })
-      }
-    }
-    return {
-      content,
-      finishReason: String(candidate.finishReason ?? ''),
-      toolCalls,
-    }
-  }
-
-  private base(fallback: string): string {
-    return (this.config.baseURL || fallback).replace(/\/+$/, '')
-  }
-
-  private joinUrl(base: string, suffix: string): string {
-    if (suffix.startsWith('http')) return suffix
-    return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`
-  }
-
-  private async postJson(
-    url: string,
-    body: unknown,
-    extraHeaders: Record<string, string>,
-  ): Promise<any> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...this.config.customHeaders,
-      ...extraHeaders,
-    }
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), this.config.timeoutMs || DEFAULT_TIMEOUT_MS)
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      })
-      const text = await res.text()
-      if (!res.ok) {
-        throw new Error(`LLM HTTP ${res.status}: ${text.slice(0, ERROR_TRUNCATE)}`)
-      }
-      return text ? JSON.parse(text) : {}
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new Error(`LLM timeout after ${this.config.timeoutMs}ms`)
-      }
-      throw err
-    } finally {
-      clearTimeout(timer)
-    }
-  }
-}
-
-function toOpenAIMessage(msg: ChatMessage): Record<string, unknown> {
-  if (msg.role === 'tool') {
-    return {
-      role: 'tool',
-      tool_call_id: msg.toolCallId ?? '',
-      content: msg.content,
-    }
-  }
-  if (msg.role === 'assistant' && msg.toolCalls?.length) {
-    return {
-      role: 'assistant',
-      content: msg.content || null,
-      tool_calls: msg.toolCalls.map((call) => ({
-        id: call.id,
-        type: 'function',
-        function: {
+    if (msg.role === 'assistant' && msg.toolCalls?.length) {
+      messages.push({
+        role: 'assistant',
+        content: msg.content ? [{ type: 'text', text: msg.content }] : [],
+        tool_calls: msg.toolCalls.map((call) => ({
+          id: call.id,
+          type: 'function',
           name: call.name,
           arguments: JSON.stringify(call.arguments ?? {}),
-        },
-      })),
+        })),
+      })
+      continue
     }
+    messages.push({
+      role: msg.role,
+      content: msg.content ? [{ type: 'text', text: msg.content }] : [],
+    })
   }
-  return { role: msg.role, content: msg.content }
+  return {
+    model,
+    instructions: instructions.length ? instructions.join('\n\n') : undefined,
+    messages,
+    tools: request.tools?.length
+      ? request.tools.map((tool) => ({
+        type: 'function' as const,
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      }))
+      : undefined,
+  }
 }
 
 function parseArgs(raw: unknown): Record<string, unknown> {
@@ -404,11 +100,138 @@ function parseArgs(raw: unknown): Record<string, unknown> {
   return {}
 }
 
-function parseJsonOrText(raw: string): unknown {
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return { result: raw }
+/** canonical 响应 → 内部 ChatResult（兼容 function_call 项与 message.tool_calls 两种表示，取其一防重复）。 */
+function fromCanonical(res: CanonicalResponse): ChatResult {
+  const toolCalls: ToolCall[] = []
+  for (const item of res.output ?? []) {
+    if (item.type === 'function_call' && !item.tool_calls?.length) {
+      toolCalls.push({
+        id: item.call_id ?? item.id ?? `call_${toolCalls.length}`,
+        name: item.name ?? '',
+        arguments: parseArgs(item.arguments),
+      })
+    }
+    for (const call of item.tool_calls ?? []) {
+      toolCalls.push({
+        id: call.id ?? `call_${toolCalls.length}`,
+        name: call.name ?? '',
+        arguments: parseArgs(call.arguments),
+      })
+    }
+  }
+  return {
+    content: canonicalResponseText(res),
+    finishReason: res.stop_reason ?? '',
+    toolCalls,
+  }
+}
+
+export interface RawChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+  /** 图片（dataURL / http URL），需 vision 模型 */
+  images?: string[]
+}
+
+export class LLMGateway {
+  constructor(private config: LLMConfig) {}
+
+  setConfig(config: LLMConfig): void {
+    this.config = config
+  }
+
+  getConfig(): LLMConfig {
+    return this.config
+  }
+
+  async chat(request: ChatRequest): Promise<ChatResult> {
+    const resolved = this.resolveActive()
+    if (!resolved.apiKey) {
+      throw new Error('LLM apiKey 未配置')
+    }
+    const canonical = toCanonical(request, resolved.model)
+    if (resolved.topP !== undefined) canonical.top_p = resolved.topP
+    // 思考开关：anthropic/gemini 走 canonical.thinking（协议包转 thinkingConfig / budget_tokens），
+    // openai 系走 canonical.reasoning.effort（协议包转 reasoning_effort）
+    const thinking = resolved.thinking
+    if (thinking?.enabled) {
+      if (resolved.provider === 'anthropic' || resolved.provider === 'gemini') {
+        canonical.thinking = thinking.effort ? { enabled: true, effort: thinking.effort } : { enabled: true }
+      } else {
+        canonical.reasoning = { effort: thinking.effort || 'medium' }
+      }
+    }
+    const res = await chatCanonical(canonical, this.endpointConfig(resolved))
+    return fromCanonical(res)
+  }
+
+  /**
+   * 简化直调（供 mcp.config.suggest 等场景）：文本 + 可选图片 → 纯文本回复。
+   * 走同一 request-kit/elysia 链路，天然支持 vision 模型。
+   */
+  async chatRaw(messages: RawChatMessage[], opts?: { temperature?: number }): Promise<string> {
+    const resolved = this.resolveActive()
+    if (!resolved.apiKey) {
+      throw new Error('LLM apiKey 未配置')
+    }
+    const simple: SimpleMessage[] = messages.map((msg) => {
+      const parts: SimplePart[] = []
+      if (msg.content) parts.push({ type: 'text', text: msg.content })
+      for (const url of msg.images ?? []) parts.push({ type: 'image', url })
+      return { role: msg.role, parts }
+    })
+    return chatText({
+      messages: simple,
+      cfg: this.endpointConfig(resolved),
+      temperature: opts?.temperature ?? 0,
+    })
+  }
+
+  /** 当前生效端点：activeModel 命中的档案逐字段覆盖内联配置（档案字段为空则回退内联） */
+  private resolveActive(): {
+    provider: LlmProvider
+    baseURL: string
+    apiKey: string
+    model: string
+    headers?: Record<string, string>
+    thinking?: LlmThinkingConfig
+    temperature?: number
+    maxTokens?: number
+    topP?: number
+    timeoutMs?: number
+    profileName: string
+  } {
+    const name = (this.config.activeModel ?? '').trim()
+    let profile: LlmModelProfile | undefined = name ? this.config.models?.[name] : undefined
+    // 被禁用的档案不承载流量，回退内联
+    if (profile?.enabled === false) profile = undefined
+    const provider = toProvider(profile?.provider || this.config.provider)
+    return {
+      provider,
+      baseURL: (profile?.baseURL || (profile ? DEFAULT_BASE[provider] : '') || this.config.baseURL || DEFAULT_BASE[provider]).replace(/\/+$/, ''),
+      apiKey: profile?.apiKey || this.config.apiKey,
+      model: profile?.model || this.config.model,
+      headers: profile?.headers && Object.keys(profile.headers).length > 0 ? profile.headers : this.config.customHeaders,
+      thinking: profile?.thinking ?? this.config.thinking,
+      temperature: profile?.temperature ?? this.config.temperature,
+      maxTokens: profile?.maxTokens ?? this.config.maxTokens,
+      topP: profile?.topP ?? this.config.topP,
+      timeoutMs: profile?.timeoutMs ?? this.config.timeoutMs,
+      profileName: profile ? name : '',
+    }
+  }
+
+  private endpointConfig(resolved: ReturnType<LLMGateway['resolveActive']>): LlmEndpointConfig {
+    return {
+      provider: resolved.provider,
+      baseURL: resolved.baseURL,
+      apiKey: resolved.apiKey,
+      model: resolved.model,
+      headers: resolved.headers,
+      timeoutMs: resolved.timeoutMs || DEFAULT_TIMEOUT_MS,
+      maxTokens: resolved.maxTokens,
+      temperature: resolved.temperature,
+    }
   }
 }
 

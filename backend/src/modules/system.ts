@@ -11,6 +11,8 @@ export interface SystemModuleDeps {
   audioCpp: CppClient
   live2dCpp: CppClient
   getEventCount: () => number
+  getFilteredCount?: () => number
+  getLastEventAt?: () => number
   getTriggerCount?: () => number
   hasLlmKey?: () => boolean
   getJukebox?: () => { running: boolean; playing: boolean; volume: number }
@@ -25,6 +27,8 @@ export function buildSystemModule(deps: SystemModuleDeps): Record<string, RpcHan
       version: deps.version,
       roomId: deps.getRoomId(),
       eventCount: deps.getEventCount(),
+      filteredCount: deps.getFilteredCount?.() ?? 0,
+      lastEventAt: deps.getLastEventAt?.() ?? 0,
       // 兼容旧 WebUI 徽章：cpp 字段仍可用（取音频执行器状态）
       cpp: {
         status: deps.audioCpp.getStatus(),
