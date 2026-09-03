@@ -38,6 +38,8 @@ class Live2DModel : public Csm::CubismUserModel {
    */
   bool LoadExtra(const nlohmann::json& params);
   void SetTransform(float scale, float x, float y);
+  /** 舞台物理：风力/重力（SDK SetOptions 运行时直调）+ 物理速率（Evaluate dt 倍率，近似强度） */
+  void SetPhysics(float windX, float windY, float gravityX, float gravityY, float speed);
 
   nlohmann::json Status() const;
   nlohmann::json MotionDetails() const;
@@ -72,6 +74,11 @@ class Live2DModel : public Csm::CubismUserModel {
   float extraScale_ = 1.0f;
   float extraX_ = 0.0f;
   float extraY_ = 0.0f;
+  float physWindX_ = 0.0f;
+  float physWindY_ = 0.0f;
+  float physGravityX_ = 0.0f;
+  float physGravityY_ = -1.0f;
+  float physSpeed_ = 1.0f;
   Csm::CubismMatrix44 projectionCache_;
   int projWidth_ = 0;
   int projHeight_ = 0;

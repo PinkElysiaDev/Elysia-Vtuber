@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <fstream>
 #include <stdexcept>
 
@@ -13,6 +14,9 @@
 #include <dcomp.h>
 #include <windowsx.h>
 #include <shellapi.h>
+#include <shobjidl.h>
+
+#include "wic_texture.h"
 
 #pragma comment(lib, "dcomp.lib")
 #pragma comment(lib, "shell32.lib")
@@ -35,6 +39,7 @@ App& App::instance() {
 }
 
 bool App::loadConfig(const std::string& path) {
+  configPath_ = path;
   const std::string resolved = ResolvePath(path);
   FileBytes bytes = LoadFile(resolved);
   if (bytes.empty()) {
@@ -50,6 +55,8 @@ bool App::loadConfig(const std::string& path) {
       config_.title = json["window"].value("title", config_.title);
       config_.transparent = json["window"].value("transparent", config_.transparent);
       config_.alwaysOnTop = json["window"].value("alwaysOnTop", config_.alwaysOnTop);
+      config_.winX = json["window"].value("x", -1);
+      config_.winY = json["window"].value("y", -1);
     }
     config_.modelPath = json.value("modelPath", config_.modelPath);
   } catch (const std::exception& ex) {
@@ -57,6 +64,36 @@ bool App::loadConfig(const std::string& path) {
     return false;
   }
   return true;
+}
+
+void App::SaveWindowPosition() {
+  if (!hwnd_ || configPath_.empty()) return;
+  RECT wr{};
+  if (!GetWindowRect(hwnd_, &wr)) return;
+  const std::string resolved = ResolvePath(configPath_);
+  try {
+    nlohmann::json json = nlohmann::json::object();
+    FileBytes bytes = LoadFile(resolved);
+    if (!bytes.empty()) {
+      try {
+        json = nlohmann::json::parse(bytes.data.begin(), bytes.data.end());
+      } catch (...) {
+        json = nlohmann::json::object();  // 原文件损坏则从空对象重建，不覆盖失败
+      }
+    }
+    if (!json.contains("window") || !json["window"].is_object()) json["window"] = nlohmann::json::object();
+    json["window"]["x"] = wr.left;
+    json["window"]["y"] = wr.top;
+    std::string out = json.dump(2);
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, Utf8ToWide(resolved).c_str(), L"wb") == 0 && f) {
+      fwrite(out.data(), 1, out.size(), f);
+      fclose(f);
+      LogLine(std::string("[window] position saved ") + std::to_string(wr.left) + "," + std::to_string(wr.top));
+    }
+  } catch (const std::exception& ex) {
+    LogLine(std::string("[window] position save failed: ") + ex.what());
+  }
 }
 
 bool App::createWindow() {
@@ -82,13 +119,16 @@ bool App::createWindow() {
 
   RECT rect{0, 0, config_.width, config_.height};
   AdjustWindowRect(&rect, style, FALSE);
+  // 记忆位置优先；负值/越界回退系统默认（CW_USEDEFAULT 对 WS_POPUP 实际落在 (0,0)）
+  const int createX = (config_.winX >= 0 && config_.winX < 30000) ? config_.winX : CW_USEDEFAULT;
+  const int createY = (config_.winY >= 0 && config_.winY < 30000) ? config_.winY : CW_USEDEFAULT;
   hwnd_ = CreateWindowExW(
       exstyle,
       wc.lpszClassName,
       Utf8ToWide(config_.title).c_str(),
       style,
-      CW_USEDEFAULT,
-      CW_USEDEFAULT,
+      createX,
+      createY,
       rect.right - rect.left,
       rect.bottom - rect.top,
       nullptr,
@@ -107,8 +147,11 @@ bool App::createWindow() {
 
 bool App::createD3DDevice() {
   D3D_FEATURE_LEVEL level{};
-  const UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-  const HRESULT hr = D3D11CreateDevice(
+  UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+#ifdef _DEBUG
+  flags |= D3D11_CREATE_DEVICE_DEBUG;  // 调试层:绘制被丢弃时 GPU 会留下原因(随 system.status 暴露)
+#endif
+  HRESULT hr = D3D11CreateDevice(
       nullptr,
       D3D_DRIVER_TYPE_HARDWARE,
       nullptr,
@@ -119,12 +162,34 @@ bool App::createD3DDevice() {
       &device_,
       &level,
       &context_);
+#ifdef _DEBUG
+  if (FAILED(hr) && (flags & D3D11_CREATE_DEVICE_DEBUG)) {
+    // 调试层未安装(DXGI_ERROR_SDK_COMPONENT_MISSING):去掉标志重试,保持可用
+    flags &= ~D3D11_CREATE_DEVICE_DEBUG;
+    hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, nullptr, 0,
+                           D3D11_SDK_VERSION, &device_, &level, &context_);
+    if (SUCCEEDED(hr)) LogLine("[d3d] debug layer unavailable, created without it");
+  }
+#endif
   if (FAILED(hr)) {
     char buf[64];
     std::snprintf(buf, sizeof(buf), "[d3d] create device failed: 0x%08lX", static_cast<unsigned long>(hr));
     LogLine(buf);
     return false;
   }
+#ifdef _DEBUG
+  device_->QueryInterface(IID_PPV_ARGS(&infoQueue_));
+  if (infoQueue_) {
+    infoQueue_->SetMuteDebugOutput(FALSE);
+    // 只留错误及以上,避免刷屏
+    D3D11_INFO_QUEUE_FILTER filter{};
+    D3D11_MESSAGE_SEVERITY deny[] = {D3D11_MESSAGE_SEVERITY_INFO, D3D11_MESSAGE_SEVERITY_MESSAGE};
+    filter.DenyList.NumSeverities = 2;
+    filter.DenyList.pSeverityList = deny;
+    infoQueue_->PushRetrievalFilter(&filter);
+    infoQueue_->PushStorageFilter(&filter);
+  }
+#endif
 
   D3D11_DEPTH_STENCIL_DESC depthDesc{};
   depthDesc.DepthEnable = FALSE;
@@ -232,7 +297,13 @@ bool App::createSwapChain() {
 }
 
 bool App::createDevice() {
-  return createD3DDevice() && createSwapChain();
+  if (!createD3DDevice() || !createSwapChain()) return false;
+  uiReady_ = ui_.Init(device_, context_);
+  if (!uiReady_) {
+    // UI 渲染器初始化失败不致命：面板/FPS 角标缺失且禁用交互，模型照常渲染
+    LogLine("[ui] init failed, panel disabled");
+  }
+  return true;
 }
 
 void App::releaseComposition() {
@@ -264,7 +335,6 @@ bool App::recreateWindow() {
 
   recreating_ = true;
   if (model_) model_.reset();  // 释放渲染器对渲染目标的引用，重建后重新加载
-  DestroyModelToolbar();
   if (lockButton_) {
     DestroyWindow(lockButton_);
     lockButton_ = nullptr;
@@ -339,7 +409,11 @@ void App::releaseTargets() {
 void App::releaseDevice() {
   releaseTargets();
   releaseComposition();
+  if (bgTex_) { bgTex_->Release(); bgTex_ = nullptr; }
+  bgTexPath_.clear();
+  ui_.ClearTextCache();
   if (depthState_) { depthState_->Release(); depthState_ = nullptr; }
+  if (infoQueue_) { infoQueue_->Release(); infoQueue_ = nullptr; }
   if (swapChain_) { swapChain_->Release(); swapChain_ = nullptr; }
   if (context_) {
     context_->ClearState();
@@ -394,7 +468,12 @@ bool App::loadDefaultModel() {
   model_ = std::make_unique<Live2DModel>();
   LogLine("[app] Live2DModel constructed");
   const bool ok = model_->Load(target, device_, width_, height_);
-  if (ok) lastModelPath_ = target;
+  if (ok) {
+    lastModelPath_ = target;
+    model_->SetTransform(lastTransformScale_, lastTransformX_, lastTransformY_);
+    // 新模型实例：重放舞台物理与变换
+    applyStagePhysics();
+  }
   return ok;
 }
 
@@ -435,20 +514,20 @@ void App::UpdateCursorHitThrough() {
   // 锁定模式：全穿透（仅锁定按钮窗口不穿透）
   if (locked_) {
     EnsureHitThrough(true);
-    SyncToolbarPosition();
+    SyncLockPosition();
     return;
   }
   if (!transparent_ || !hwnd_) {
     EnsureHitThrough(false);
-    SyncToolbarPosition();
+    SyncLockPosition();
     return;
   }
+  POINT p{};
+  GetCursorPos(&p);
+  POINT origin{0, 0};
+  ClientToScreen(hwnd_, &origin);
   int mx = 0, my = 0, mw = 0, mh = 0;
   if (model_ && model_->GetPixelBounds(mx, my, mw, mh)) {
-    POINT p{};
-    GetCursorPos(&p);
-    POINT origin{0, 0};
-    ClientToScreen(hwnd_, &origin);
     const long sx = origin.x + mx;
     const long sy = origin.y + my;
     const bool inside =
@@ -458,7 +537,7 @@ void App::UpdateCursorHitThrough() {
   } else {
     EnsureHitThrough(true);
   }
-  SyncToolbarPosition();
+  SyncLockPosition();
 }
 
 void App::EnsureHitThrough(bool through) {
@@ -476,95 +555,159 @@ void App::EnsureHitThrough(bool through) {
 }
 
 // ============================================================
-// 扁平自绘工具条 + 锁定迷你按钮
+// 窗口内 UI（FPS 角标）+ 锁定迷你按钮
+// 控制台面板已迁移至独立控制窗（backend/renderer/compact.html，双击模型经 Edge --app 唤起）
 // ============================================================
 
 namespace {
-// 扁平配色
-constexpr COLORREF TB_BG = RGB(10, 15, 20);        // 深底
-constexpr COLORREF TB_BORDER = RGB(26, 42, 58);     // 1px 边框
-constexpr COLORREF TB_HOVER = RGB(13, 21, 32);      // 悬停变亮
-constexpr COLORREF TB_ACTIVE = RGB(0, 227, 255);    // 按下青色
-constexpr COLORREF TB_TEXT = RGB(220, 230, 240);    // 文字
-constexpr COLORREF TB_TEXT_MUTED = RGB(100, 110, 120); // 灰显
+// 战术配色（与 WebUI 主题一致：深底 + 青色强调）
+constexpr COLORREF TB_BG = RGB(10, 15, 20);        // 深底（锁定按钮沿用）
+constexpr COLORREF TB_ACTIVE = RGB(0, 227, 255);   // 青（锁定按钮沿用）
 
-// 按钮定义（从左到右）
-struct FlatBtn {
-  const wchar_t* label;
-  int id;
-};
-constexpr FlatBtn TB_BUTTONS[] = {
-  {L"🔒锁定", 1},
-  {L"📌置顶", 2},
-  {L"👔换装", 3},
-  {L"⚙设置", 4},
-  {L"✕隐藏", 5},
-};
-constexpr int TB_BTN_COUNT = 5;
-constexpr int TB_BTN_W = 68;
-constexpr int TB_BTN_H = 26;
-constexpr int TB_BTN_GAP = 4;
-constexpr int TB_TITLE_H = 18;
-constexpr int TB_WIDTH = TB_BTN_COUNT * (TB_BTN_W + TB_BTN_GAP) + TB_BTN_GAP;
-constexpr int TB_HEIGHT = TB_TITLE_H + TB_BTN_H + 8;
-} // namespace
+// FPS 角标配色（RGBA 直通，绘制时预乘）
+constexpr float PAN_BG_R = 0.075f, PAN_BG_G = 0.10f, PAN_BG_B = 0.13f;   // #131a21
+constexpr float CYAN_R = 0.0f, CYAN_G = 0.890f, CYAN_B = 1.0f;            // #00e5ff
 
-void App::DrawToolbarButtons(HDC hdc, RECT rc) {
-  // 背景
-  HBRUSH bg = CreateSolidBrush(TB_BG);
-  FillRect(hdc, &rc, bg);
-  DeleteObject(bg);
+float ClampF(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+}  // namespace
 
-  // 外边框
-  HPEN border = CreatePen(PS_SOLID, 1, TB_BORDER);
-  HGDIOBJ oldPen = SelectObject(hdc, border);
-  HBRUSH hollow = (HBRUSH)GetStockObject(NULL_BRUSH);
-  Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
-  SelectObject(hdc, oldPen);
-  DeleteObject(border);
-
-  // 按钮区
-  SetBkMode(hdc, TRANSPARENT);
-  HFONT font = CreateFontW(13, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
-                           OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                           DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-  HGDIOBJ oldFont = SelectObject(hdc, font);
-
-  for (int i = 0; i < TB_BTN_COUNT; i++) {
-    const int bx = TB_BTN_GAP + i * (TB_BTN_W + TB_BTN_GAP);
-    const int by = TB_TITLE_H + 4;
-    RECT btnRect = {bx, by, bx + TB_BTN_W, by + TB_BTN_H};
-
-    // 按钮底色
-    COLORREF fillColor = TB_BG;
-    if (hoverBtn_ == i) fillColor = TB_HOVER;
-    HBRUSH btnBrush = CreateSolidBrush(fillColor);
-    FillRect(hdc, &btnRect, btnBrush);
-    DeleteObject(btnBrush);
-
-    // 按钮边框
-    HPEN btnPen = CreatePen(PS_SOLID, 1, TB_BORDER);
-    SelectObject(hdc, btnPen);
-    Rectangle(hdc, btnRect.left, btnRect.top, btnRect.right, btnRect.bottom);
-    DeleteObject(btnPen);
-
-    // 文字
-    // 置顶按钮实时反映状态
-    std::wstring label = TB_BUTTONS[i].label;
-    if (TB_BUTTONS[i].id == 2) {
-      label = topmost_ ? L"📌取消顶" : L"📌置顶";
-    }
-    SetTextColor(hdc, hoverBtn_ == i ? TB_ACTIVE : TB_TEXT);
-    DrawTextW(hdc, label.c_str(), -1, &btnRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+void App::ParseHexColor(const std::string& hex, float& r, float& g, float& b) {
+  std::string h = hex;
+  if (!h.empty() && h[0] == '#') h = h.substr(1);
+  if (h.length() != 6) {
+    r = g = b = 0;
+    return;
   }
+  auto nib = [](char c) -> int {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return 0;
+  };
+  const int ri = nib(h[0]) * 16 + nib(h[1]);
+  const int gi = nib(h[2]) * 16 + nib(h[3]);
+  const int bi = nib(h[4]) * 16 + nib(h[5]);
+  r = ri / 255.0f;
+  g = gi / 255.0f;
+  b = bi / 255.0f;
+}
 
-  // 标题区文字
-  RECT titleRect = {TB_BTN_GAP, 2, TB_WIDTH - TB_BTN_GAP, TB_TITLE_H};
-  SetTextColor(hdc, TB_TEXT_MUTED);
-  DrawTextW(hdc, L"VTUBER 控制条（拖动移动）", -1, &titleRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+void App::SyncLockPosition() {
+  if (!lockButton_ || !locked_) return;
+  int mx = 0, my = 0, mw = 0, mh = 0;
+  POINT origin{0, 0};
+  ClientToScreen(hwnd_, &origin);
+  if (!model_ || !model_->GetPixelBounds(mx, my, mw, mh)) return;
+  const int x = origin.x + mx + mw - 44;
+  const int y = origin.y + my + 4;
+  SetWindowPos(lockButton_, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
 
-  SelectObject(hdc, oldFont);
-  DeleteObject(font);
+void App::scheduleStageNotify() {
+  stageDirty_ = true;
+}
+
+void App::applyStagePhysics() {
+  if (model_) {
+    model_->SetPhysics(stage_.windX, stage_.windY, stage_.gravityX, stage_.gravityY, stage_.physicsSpeed);
+  }
+}
+
+nlohmann::json App::stageJson() const {
+  return {
+      {"windX", stage_.windX},
+      {"windY", stage_.windY},
+      {"gravityX", stage_.gravityX},
+      {"gravityY", stage_.gravityY},
+      {"physicsSpeed", stage_.physicsSpeed},
+      {"bgMode", stage_.bgMode},
+      {"bgColor", stage_.bgColor},
+      {"bgAlpha", stage_.bgAlpha},
+      {"bgImage", stage_.bgImage},
+      {"fpsOverlay", stage_.fpsOverlay},
+  };
+}
+
+void App::applyStage(const nlohmann::json& params) {
+  const std::string oldImage = stage_.bgImage;
+  if (params.contains("windX")) stage_.windX = ClampF(params.value("windX", 0.0f), -3.0f, 3.0f);
+  if (params.contains("windY")) stage_.windY = ClampF(params.value("windY", 0.0f), -3.0f, 3.0f);
+  if (params.contains("gravityX")) stage_.gravityX = ClampF(params.value("gravityX", 0.0f), -3.0f, 3.0f);
+  if (params.contains("gravityY")) stage_.gravityY = ClampF(params.value("gravityY", -1.0f), -3.0f, 3.0f);
+  if (params.contains("physicsSpeed")) stage_.physicsSpeed = ClampF(params.value("physicsSpeed", 1.0f), 0.0f, 3.0f);
+  if (params.contains("bgMode")) stage_.bgMode = params.value("bgMode", std::string("transparent"));
+  if (params.contains("bgColor")) stage_.bgColor = params.value("bgColor", std::string("#0d1218"));
+  if (params.contains("bgAlpha")) stage_.bgAlpha = ClampF(params.value("bgAlpha", 1.0f), 0.0f, 1.0f);
+  if (params.contains("bgImage")) stage_.bgImage = params.value("bgImage", std::string(""));
+  if (params.contains("fpsOverlay")) stage_.fpsOverlay = params.value("fpsOverlay", false);
+  applyStagePhysics();
+  if (stage_.bgImage != oldImage) loadBgTexture();
+}
+
+void App::loadBgTexture() {
+  if (bgTexPath_ == stage_.bgImage) return;
+  if (bgTex_) {
+    bgTex_->Release();
+    bgTex_ = nullptr;
+  }
+  bgTexPath_ = stage_.bgImage;
+  if (bgTexPath_.empty()) return;
+  const std::string resolved = ResolvePath(bgTexPath_);
+  if (!LoadPngTexture(device_, resolved, &bgTex_)) {
+    LogLine(std::string("[stage] background image load failed: ") + resolved);
+    bgTex_ = nullptr;
+  } else {
+    LogLine(std::string("[stage] background image loaded: ") + resolved);
+  }
+}
+
+void App::DrawBackgroundImage() {
+  if (!bgTex_) return;
+  ID3D11Resource* res = nullptr;
+  bgTex_->GetResource(&res);
+  ID3D11Texture2D* tex = nullptr;
+  UINT iw = 0, ih = 0;
+  if (res && SUCCEEDED(res->QueryInterface(IID_PPV_ARGS(&tex)))) {
+    D3D11_TEXTURE2D_DESC desc{};
+    tex->GetDesc(&desc);
+    iw = desc.Width;
+    ih = desc.Height;
+    tex->Release();
+  }
+  if (res) res->Release();
+  if (!iw || !ih) return;
+  // cover 适配铺满
+  const float scale = std::max(width_ / static_cast<float>(iw), height_ / static_cast<float>(ih));
+  const float dw = iw * scale;
+  const float dh = ih * scale;
+  ui_.TextureRect((width_ - dw) / 2.0f, (height_ - dh) / 2.0f, dw, dh, bgTex_,
+                  ClampF(stage_.bgAlpha, 0.0f, 1.0f));
+}
+
+void App::OpenControlWindow() {
+  // 双击模型 = 直接打开 WebUI 控制台（完整配置界面）。
+  // 优先 --app 模式（无地址栏独立小窗）：先 Edge 后 Chrome（均经 App Paths 解析），
+  // 两者都不可用时回退系统默认浏览器打开普通标签页
+  const std::string url = webuiUrl_;
+  const std::wstring wurl = Utf8ToWide(url);
+  const std::wstring arg = L"--app=" + wurl;
+  const HINSTANCE h1 = ShellExecuteW(nullptr, L"open", L"msedge.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+  if (reinterpret_cast<INT_PTR>(h1) <= 32) {
+    const HINSTANCE h2 = ShellExecuteW(nullptr, L"open", L"chrome.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+    if (reinterpret_cast<INT_PTR>(h2) <= 32) {
+      ShellExecuteW(nullptr, L"open", wurl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+  }
+  LogLine(std::string("[control] compact window: ") + url);
+}
+
+void App::drawFpsBadge() {
+  wchar_t buf[32];
+  swprintf(buf, 32, L"%.0f FPS", fps_);
+  const float w = ui_.MeasureText(buf, 17.0f, true, true) + 26.0f;
+  ui_.Rect(10.0f, 10.0f, w, 34.0f, PAN_BG_R, PAN_BG_G, PAN_BG_B, 0.9f);
+  ui_.FrameRect(10.0f, 10.0f, w, 34.0f, CYAN_R, CYAN_G, CYAN_B, 0.5f);
+  ui_.Text(buf, 22.0f, 15.0f, 17.0f, CYAN_R, CYAN_G, CYAN_B, 1.0f, true, true);
 }
 
 void App::DrawLockButton(HDC hdc, RECT rc) {
@@ -591,47 +734,9 @@ void App::DrawLockButton(HDC hdc, RECT rc) {
   DeleteObject(font);
 }
 
-void App::ShowModelToolbar() {
-  if (toolbar_) return;
-
-  WNDCLASSEXW wc{};
-  wc.cbSize = sizeof(wc);
-  wc.lpfnWndProc = ToolbarProc;
-  wc.hInstance = GetModuleHandleW(nullptr);
-  wc.lpszClassName = L"VtuberExecutorToolbar";
-  wc.hCursor = LoadCursor(nullptr, IDC_HAND);
-  RegisterClassExW(&wc);
-
-  int mx = 0, my = 0, mw = 0, mh = 0;
-  POINT origin{0, 0};
-  ClientToScreen(hwnd_, &origin);
-  if (!model_ || !model_->GetPixelBounds(mx, my, mw, mh)) {
-    RECT r{};
-    GetWindowRect(hwnd_, &r);
-    mx = 0; my = 0; mw = r.right - r.left; mh = r.bottom - r.top;
-  }
-  int x = origin.x + mx + (mw - TB_WIDTH) / 2;
-  int y = origin.y + my - TB_HEIGHT - 6;
-  if (y < 0) y = origin.y + my + mh + 6;
-
-  toolbar_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, wc.lpszClassName, nullptr,
-                             WS_POPUP, x, y, TB_WIDTH, TB_HEIGHT,
-                             hwnd_, nullptr, wc.hInstance, this);
-  if (!toolbar_) return;
-  ShowWindow(toolbar_, SW_SHOWNOACTIVATE);
-}
-
-void App::DestroyModelToolbar() {
-  if (toolbar_) {
-    DestroyWindow(toolbar_);
-    toolbar_ = nullptr;
-  }
-}
-
 void App::EnterLockMode() {
   locked_ = true;
-  DestroyModelToolbar();
-  // 主窗口全穿透
+  // 主窗口全穿透（仅锁定按钮可交互）
   EnsureHitThrough(true);
 
   // 创建锁定按钮迷你窗
@@ -648,7 +753,7 @@ void App::EnterLockMode() {
       0, 0, 36, 36, hwnd_, nullptr, wc.hInstance, this);
   if (lockButton_) {
     SetLayeredWindowAttributes(lockButton_, 0, 220, LWA_ALPHA);
-    SyncToolbarPosition();
+    SyncLockPosition();
     ShowWindow(lockButton_, SW_SHOWNOACTIVATE);
   }
 }
@@ -660,7 +765,6 @@ void App::ExitLockMode() {
     lockButton_ = nullptr;
   }
   EnsureHitThrough(false);
-  ShowModelToolbar();
 }
 
 void App::ToggleLock() {
@@ -674,97 +778,6 @@ void App::CycleCostume() {
   if (expressions.empty()) return;
   costumeIdx_ = (costumeIdx_ + 1) % static_cast<int>(expressions.size());
   model_->SetExpression(expressions[costumeIdx_]);
-}
-
-void App::SyncToolbarPosition() {
-  int mx = 0, my = 0, mw = 0, mh = 0;
-  POINT origin{0, 0};
-  ClientToScreen(hwnd_, &origin);
-  if (!model_ || !model_->GetPixelBounds(mx, my, mw, mh)) return;
-
-  if (toolbar_ && !locked_) {
-    int x = origin.x + mx + (mw - TB_WIDTH) / 2;
-    int y = origin.y + my - TB_HEIGHT - 6;
-    if (y < 0) y = origin.y + my + mh + 6;
-    SetWindowPos(toolbar_, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-  }
-  if (lockButton_ && locked_) {
-    int x = origin.x + mx + mw - 44;
-    int y = origin.y + my + 4;
-    SetWindowPos(lockButton_, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-  }
-}
-
-LRESULT CALLBACK App::ToolbarProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-  App* app = reinterpret_cast<App*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-  switch (msg) {
-    case WM_NCCREATE: {
-      auto* cs = reinterpret_cast<CREATESTRUCTW*>(lparam);
-      SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-      break;
-    }
-    case WM_PAINT: {
-      PAINTSTRUCT ps{};
-      HDC hdc = BeginPaint(hwnd, &ps);
-      if (app) app->DrawToolbarButtons(hdc, ps.rcPaint);
-      EndPaint(hwnd, &ps);
-      return 0;
-    }
-    case WM_MOUSEMOVE: {
-      if (!app) break;
-      POINT pt{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-      int hover = -1;
-      for (int i = 0; i < TB_BTN_COUNT; i++) {
-        const int bx = TB_BTN_GAP + i * (TB_BTN_W + TB_BTN_GAP);
-        const int by = TB_TITLE_H + 4;
-        if (pt.x >= bx && pt.x < bx + TB_BTN_W && pt.y >= by && pt.y < by + TB_BTN_H) hover = i;
-      }
-      if (hover != app->hoverBtn_) {
-        app->hoverBtn_ = hover;
-        InvalidateRect(hwnd, nullptr, TRUE);
-      }
-      // 追踪鼠标离开
-      TRACKMOUSEEVENT tme{};
-      tme.cbSize = sizeof(tme);
-      tme.dwFlags = TME_LEAVE;
-      tme.hwndTrack = hwnd;
-      TrackMouseEvent(&tme);
-      return 0;
-    }
-    case WM_MOUSELEAVE:
-      if (app) {
-        app->hoverBtn_ = -1;
-        InvalidateRect(hwnd, nullptr, TRUE);
-      }
-      return 0;
-    case WM_LBUTTONUP: {
-      if (!app) break;
-      const int clicked = app->hoverBtn_;
-      app->hoverBtn_ = -1;
-      InvalidateRect(hwnd, nullptr, TRUE);
-      if (clicked < 0) break;
-      const int id = TB_BUTTONS[clicked].id;
-      if (id == 1) app->ToggleLock();
-      else if (id == 2) app->applyWindow({{"alwaysOnTop", !app->topmost_}});
-      else if (id == 3) app->CycleCostume();
-      else if (id == 4) ShellExecuteW(nullptr, L"open", L"http://127.0.0.1:19274/", nullptr, nullptr, SW_SHOWNORMAL);
-      else if (id == 5) ShowWindow(app->hwnd_, SW_HIDE);
-      return 0;
-    }
-    case WM_NCHITTEST: {
-      // 标题区可拖动
-      const LRESULT hit = DefWindowProcW(hwnd, msg, wparam, lparam);
-      POINT pt{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-      ScreenToClient(hwnd, &pt);
-      if (hit == HTCLIENT && pt.y <= TB_TITLE_H) return HTCAPTION;
-      return hit;
-    }
-    case WM_DESTROY:
-      return 0;
-    default:
-      break;
-  }
-  return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 LRESULT CALLBACK App::LockBtnProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -795,11 +808,39 @@ LRESULT CALLBACK App::LockBtnProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
 
 void App::frame() {
   if (!device_ || !context_) return;
+  frameCount_++;
   pumpJobs();
   UpdateCursorHitThrough();
 
-  // 透明模式 alpha=0（预乘）；不透明保持纯黑
-  const float clear[4] = {0.0f, 0.0f, 0.0f, transparent_ ? 0.0f : 1.0f};
+  const float dt = deltaSeconds();
+
+  // FPS 统计：500ms 窗口均值
+  fpsAccum_ += dt;
+  fpsFrames_++;
+  fpsClock_ += dt;
+  if (fpsClock_ >= 0.5) {
+    fps_ = fpsFrames_ / fpsAccum_;
+    fpsClock_ = 0.0;
+    fpsAccum_ = 0.0;
+    fpsFrames_ = 0;
+  }
+
+  // 背景色：transparent 全 0；color 预乘半透明色底（透明窗下呈半透明色）；image 清 0 后铺图
+  float clearR = 0.0f, clearG = 0.0f, clearB = 0.0f, clearA = transparent_ ? 0.0f : 1.0f;
+  if (stage_.bgMode == "color") {
+    ParseHexColor(stage_.bgColor, clearR, clearG, clearB);
+    const float a = ClampF(stage_.bgAlpha, 0.0f, 1.0f);
+    if (transparent_) {
+      // 预乘 clear：alpha<1 时窗口呈半透明色底
+      clearR *= a;
+      clearG *= a;
+      clearB *= a;
+      clearA = a;
+    } else {
+      clearA = 1.0f;
+    }
+  }
+  const float clear[4] = {clearR, clearG, clearB, clearA};
   context_->OMSetRenderTargets(1, &rtv_, dsv_);
   context_->ClearRenderTargetView(rtv_, clear);
   context_->ClearDepthStencilView(dsv_, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
@@ -811,13 +852,82 @@ void App::frame() {
   viewport.MaxDepth = 1.0f;
   context_->RSSetViewports(1, &viewport);
 
+  // 背景图（模型之下，cover 适配，可乘不透明度）
+  if (stage_.bgMode == "image") loadBgTexture();
+  if (stage_.bgMode == "image" && bgTex_) {
+    ui_.Begin(width_, height_);
+    DrawBackgroundImage();
+    ui_.End();
+    context_->OMSetRenderTargets(1, &rtv_, dsv_);
+  }
+
   auto* renderer = (model_ && model_->loaded()) ? model_->GetRenderer<Csm::Rendering::CubismRenderer_D3D11>() : nullptr;
   if (renderer) renderer->StartFrame(context_);
   if (model_) {
-    model_->Update(deltaSeconds());
+    model_->Update(dt);
     model_->Draw(width_, height_);
   }
   if (renderer) renderer->EndFrame();
+
+  // UI 层前置：显式重绑后备缓冲。不信任 Cubism EndFrame 的状态归还——
+  // SDK 在蒙版/换装/动作加载等离屏路径后可能留下非后备缓冲目标（或空绑定），
+  // ui_.Begin() 会捕获到错误目标，导致面板/FPS 角标整体画到虚空（模型正常、UI 消失）
+  context_->OMSetRenderTargets(1, &rtv_, dsv_);
+
+  // 窗口内 UI：仅 FPS 角标（控制台已迁移至独立控制窗 compact.html，双击模型唤起）
+  if (uiReady_ && stage_.fpsOverlay && !locked_) {
+    ui_.Begin(width_, height_);
+    drawFpsBadge();
+    ui_.End();
+  }
+
+  // 面板编辑 → 节流广播 stageChanged
+  if (stageDirty_) {
+    LARGE_INTEGER qpc{};
+    QueryPerformanceCounter(&qpc);
+    const double wall = static_cast<double>(qpc.QuadPart) / freq_.QuadPart * 1000.0;
+    if (wall - stageLastNotify_ >= 100.0) {
+      stageDirty_ = false;
+      stageLastNotify_ = wall;
+      notify("live2d.stageChanged", stageJson());
+    }
+  }
+
+  // 每 60 帧回读后备缓冲像素(角标区/模型区)：兼作 GPU 同步点,修复 FLIP+DComp 呈现队列丢帧
+  if ((frameCount_ % 60) == 0 && rtv_) {
+    ID3D11Resource* res = nullptr;
+    rtv_->GetResource(&res);
+    ID3D11Texture2D* back = nullptr;
+    if (res && SUCCEEDED(res->QueryInterface(IID_PPV_ARGS(&back)))) {
+      D3D11_TEXTURE2D_DESC desc{};
+      back->GetDesc(&desc);
+      D3D11_TEXTURE2D_DESC st = desc;
+      st.Usage = D3D11_USAGE_STAGING;
+      st.BindFlags = 0;
+      st.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+      st.MiscFlags = 0;
+      ID3D11Texture2D* staging = nullptr;
+      if (SUCCEEDED(device_->CreateTexture2D(&st, nullptr, &staging))) {
+        context_->CopyResource(staging, back);
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (SUCCEEDED(context_->Map(staging, 0, D3D11_MAP_READ, 0, &mapped))) {
+          auto readPx = [&](int x, int y, int out[4]) {
+            if (x < 0 || y < 0 || x >= static_cast<int>(desc.Width) || y >= static_cast<int>(desc.Height)) return;
+            const UINT bpp = 4;
+            const BYTE* row = static_cast<const BYTE*>(mapped.pData) + static_cast<SIZE_T>(y) * mapped.RowPitch;
+            const BYTE* px = row + static_cast<SIZE_T>(x) * bpp;
+            out[0] = px[0]; out[1] = px[1]; out[2] = px[2]; out[3] = px[3];  // BGRA
+          };
+          readPx(40, 24, probePanel_);  // 角标区
+          readPx(400, 700, probeModel_);
+          context_->Unmap(staging, 0);
+        }
+        staging->Release();
+      }
+      back->Release();
+    }
+    if (res) res->Release();
+  }
 
   swapChain_->Present(1, 0);
 }
@@ -835,14 +945,51 @@ nlohmann::json App::handleRpc(const std::string& method, const nlohmann::json& p
   }
   if (method == "system.status") {
     // model_ 由渲染线程在 live2d.load 中替换，IPC 线程直接读会有 UAF 风险，
-    // 状态查询统一投递到渲染线程执行
-    nlohmann::json live2d = runOnRenderThread([this]() {
-      return model_ ? model_->Status() : nlohmann::json{{"loaded", false}};
+    // 状态查询统一投递到渲染线程执行（含面板/包围盒诊断字段）
+    nlohmann::json live2d;
+    nlohmann::json panel;
+    nlohmann::json d3dMsgs = nlohmann::json::array();
+    runOnRenderThread([this, &live2d, &panel, &d3dMsgs]() {
+      live2d = model_ ? model_->Status() : nlohmann::json{{"loaded", false}};
+      int bx = 0, by = 0, bw = 0, bh = 0;
+      const bool hasBounds = model_ && model_->GetPixelBounds(bx, by, bw, bh);
+      panel = {
+          {"locked", locked_},
+          {"hitThrough", hitThrough_},
+          {"modelBounds",
+           hasBounds ? nlohmann::json{{"x", bx}, {"y", by}, {"w", bw}, {"h", bh}}
+                     : nlohmann::json(nullptr)},
+      };
+      // D3D 调试层消息:GPU 拒绝绘制的原因(取最近最多 8 条)
+      if (infoQueue_) {
+        UINT64 count = infoQueue_->GetNumStoredMessagesAllowedByRetrievalFilter();
+        if (count > 8) count = 8;
+        for (UINT64 i = 0; i < count; i++) {
+          SIZE_T len = 0;
+          if (FAILED(infoQueue_->GetMessage(0, nullptr, &len)) || len == 0) continue;
+          std::vector<char> buf(len);
+          auto* msg = reinterpret_cast<D3D11_MESSAGE*>(buf.data());
+          if (SUCCEEDED(infoQueue_->GetMessage(0, msg, &len)) && msg->pDescription) {
+            std::string text(msg->pDescription, msg->DescriptionByteLength);
+            if (text.size() > 300) text.resize(300);
+            d3dMsgs.push_back(text);
+          }
+        }
+        infoQueue_->ClearStoredMessages();
+      }
+      return nlohmann::json{{"ok", true}};
     });
     return {
         {"ok", true},
         {"role", "cpp-executor"},
         {"ipcPort", config_.ipcPort},
+        {"fps", fps_},
+        {"stage", stageJson()},
+        {"ui", {{"frames", frameCount_}, {"quads", ui_.quadCount}, {"beginRtv", ui_.lastBeginHadRtv},
+                {"probePanelBGRA", {probePanel_[3], probePanel_[2], probePanel_[1], probePanel_[0]}},
+                {"probeModelBGRA", {probeModel_[3], probeModel_[2], probeModel_[1], probeModel_[0]}}}},
+        {"d3d", d3dMsgs},
+        {"panel", panel},
         {"window",
          {{"width", width_}, {"height", height_}, {"transparent", transparent_}, {"alwaysOnTop", topmost_}}},
         {"live2d", live2d},
@@ -886,7 +1033,11 @@ nlohmann::json App::dispatchLive2d(const std::string& method, const nlohmann::js
     return runOnRenderThread([this, path]() {
       model_ = std::make_unique<Live2DModel>();
       const bool ok = model_->Load(path, device_, width_, height_);
-      if (ok) lastModelPath_ = path;
+      if (ok) {
+        lastModelPath_ = path;
+        model_->SetTransform(lastTransformScale_, lastTransformX_, lastTransformY_);
+        applyStagePhysics();
+      }
       return nlohmann::json{{"ok", ok}, {"live2d", model_->Status()}};
     });
   }
@@ -933,6 +1084,30 @@ nlohmann::json App::dispatchLive2d(const std::string& method, const nlohmann::js
       lastTransformY_ = y;
       return nlohmann::json{{"ok", static_cast<bool>(model_)}, {"scale", scale}, {"x", x}, {"y", y}};
     });
+  }
+  if (method == "live2d.stage") {
+    return runOnRenderThread([this]() { return stageJson(); });
+  }
+  if (method == "live2d.setStage") {
+    // 后端 → 执行器：应用舞台配置（不回播，防联动环）
+    return runOnRenderThread([this, params]() {
+      applyStage(params);
+      return nlohmann::json{{"ok", true}, {"stage", stageJson()}};
+    });
+  }
+  if (method == "live2d.lock") {
+    // compact 控制窗「锁定」按钮：切换点击穿透锁定（与锁定迷你按钮共用状态）
+    return runOnRenderThread([this, params]() {
+      const bool want = params.value("locked", !locked_);
+      if (want != locked_) ToggleLock();
+      return nlohmann::json{{"ok", true}, {"locked", locked_}};
+    });
+  }
+  if (method == "live2d.setEnv") {
+    // 后端推送 WebUI 地址（实际 httpPort），面板 WebUI 按钮使用
+    const std::string url = params.value("webuiUrl", "");
+    if (!url.empty()) webuiUrl_ = url;
+    return nlohmann::json{{"ok", true}, {"webuiUrl", webuiUrl_}};
   }
   throw std::runtime_error("method not found: " + method);
 }
@@ -1010,6 +1185,10 @@ LRESULT CALLBACK App::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         app->resize(LOWORD(lparam), HIWORD(lparam));
       }
       return 0;
+    case WM_EXITSIZEMOVE:
+      // 用户拖动/调整窗口结束：持久化位置（重建窗口期间除外）
+      if (app && !app->recreating_.load()) app->SaveWindowPosition();
+      return 0;
     case WM_NCHITTEST: {
       // 透明无边框窗口：仅在模型包围盒内可拖动/交互，盒外穿透（轮询兜底之外的第二道保险）
       if (app && app->transparent_) {
@@ -1029,11 +1208,11 @@ LRESULT CALLBACK App::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
       }
       break;
     }
-    // WM_NCHITTEST 返回 HTCAPTION 后双击到达的是非客户区消息（NCL）
+    // WM_NCHITTEST 返回 HTCAPTION 后双击到达的是非客户区消息（NCL）。
+    // 双击模型 = 呼出独立控制窗口（LunaMate 模式：设置不画在桌宠窗口内）
     case WM_NCLBUTTONDBLCLK:
-      if (app && app->transparent_) {
-        if (app->toolbar_) app->DestroyModelToolbar();
-        else app->ShowModelToolbar();
+      if (app && !app->locked_) {
+        app->OpenControlWindow();
       }
       return 0;
     case WM_DESTROY:

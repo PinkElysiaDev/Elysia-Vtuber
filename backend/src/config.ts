@@ -245,6 +245,30 @@ export interface Live2DAssetRegistration {
   }
 }
 
+/** 舞台配置：物理（风/重力/强度）、背景（模式/色/图）、FPS 角标——与悬浮面板双向联动 */
+export interface Live2DStageConfig {
+  /** 风力 X 分量（-3~3，SDK 原生） */
+  windX: number
+  /** 风力 Y 分量（-3~3） */
+  windY: number
+  /** 重力 X 分量（-3~3） */
+  gravityX: number
+  /** 重力 Y 分量（-3~3，默认 -1 向下） */
+  gravityY: number
+  /** 物理强度（0~3，演算 dt 倍率近似） */
+  physicsSpeed: number
+  /** 背景模式：transparent | color | image */
+  bgMode: 'transparent' | 'color' | 'image'
+  /** 背景色（#rrggbb，bgMode=color 时生效） */
+  bgColor: string
+  /** 背景不透明度（0~1，透明窗下呈半透明色底） */
+  bgAlpha: number
+  /** 背景图绝对路径（bgMode=image 时生效） */
+  bgImage: string
+  /** FPS 角标显示开关 */
+  fpsOverlay: boolean
+}
+
 export interface Live2DConfig {
   /** 模型路径（.model3.json） */
   modelPath: string
@@ -259,6 +283,8 @@ export interface Live2DConfig {
     transparent: boolean
     alwaysOnTop: boolean
   }
+  /** 舞台（物理/背景/FPS 角标，悬浮面板与 WebUI 联动） */
+  stage: Live2DStageConfig
   /** 默认缩放/位置 */
   scale: number
   x: number
@@ -462,6 +488,18 @@ export function defaultConfig(): BackendConfig {
         idle: { motions: [], mode: 'random', intervalSec: 8 },
       },
       window: { width: 800, height: 1000, transparent: true, alwaysOnTop: true },
+      stage: {
+        windX: 0,
+        windY: 0,
+        gravityX: 0,
+        gravityY: -1,
+        physicsSpeed: 1,
+        bgMode: 'transparent',
+        bgColor: '#0d1218',
+        bgAlpha: 1,
+        bgImage: '',
+        fpsOverlay: false,
+      },
       scale: 1,
       x: 0,
       y: 0,

@@ -7,6 +7,7 @@
 #include <CubismModelSettingJson.hpp>
 #include <Id/CubismIdManager.hpp>
 #include <Motion/CubismMotion.hpp>
+#include <Physics/CubismPhysics.hpp>
 #include <Rendering/D3D11/CubismRenderer_D3D11.hpp>
 #include <Utils/CubismString.hpp>
 
@@ -224,7 +225,8 @@ void Live2DModel::Update(float deltaSeconds) {
   if (_expressionManager) _expressionManager->UpdateMotion(_model, deltaSeconds);
   if (_eyeBlink) _eyeBlink->UpdateParameters(_model, deltaSeconds);
   if (_breath) _breath->UpdateParameters(_model, deltaSeconds);
-  if (_physics) _physics->Evaluate(_model, deltaSeconds);
+  // 物理速率倍率：近似"物理强度"（原生 SDK 无整体倍率接口，缩放演算 dt）
+  if (_physics) _physics->Evaluate(_model, deltaSeconds * physSpeed_);
   if (_pose) _pose->UpdateParameters(_model, deltaSeconds);
   _model->Update();
 }
@@ -376,6 +378,20 @@ void Live2DModel::SetTransform(float scale, float x, float y) {
   extraScale_ = scale <= 0.0f ? 1.0f : scale;
   extraX_ = x;
   extraY_ = y;
+}
+
+void Live2DModel::SetPhysics(float windX, float windY, float gravityX, float gravityY, float speed) {
+  physWindX_ = windX;
+  physWindY_ = windY;
+  physGravityX_ = gravityX;
+  physGravityY_ = gravityY;
+  physSpeed_ = speed < 0.0f ? 0.0f : speed;
+  if (_physics) {
+    Csm::CubismPhysics::Options options;
+    options.Gravity = Csm::CubismVector2(physGravityX_, physGravityY_);
+    options.Wind = Csm::CubismVector2(physWindX_, physWindY_);
+    _physics->SetOptions(options);
+  }
 }
 
 nlohmann::json Live2DModel::Status() const {

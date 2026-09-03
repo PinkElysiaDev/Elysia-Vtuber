@@ -111,6 +111,7 @@ add_executable(vtuber_executor WIN32
   src/main.cpp
   src/app.cpp
   src/live2d_model.cpp
+  src/ui_renderer.cpp
   src/wic_texture.cpp
 )
 
@@ -125,6 +126,8 @@ target_link_libraries(vtuber_executor PRIVATE
   d3d11
   dxgi
   d3dcompiler
+  d2d1
+  dwrite
   windowscodecs
   ws2_32
   ole32

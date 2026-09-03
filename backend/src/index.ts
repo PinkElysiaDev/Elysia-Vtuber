@@ -33,7 +33,7 @@ import { buildLlmModelsModule } from './modules/llm-models'
 import { VtuberDatabase } from './core/database'
 import { RetentionSweeper } from './core/retention'
 import { buildOutputFontModule, fontsDir } from './modules/output-font'
-import { applyLive2dConfig, applyWindowConfig, buildLive2dModule } from './modules/live2d'
+import { applyLive2dConfig, applyStageConfig, applyWindowConfig, buildLive2dModule } from './modules/live2d'
 import { TtsEngine } from './tts/engine'
 import { buildTtsModule } from './modules/tts'
 
@@ -81,7 +81,9 @@ class VtuberService {
   private lastIdleAt = 0
   private lastLive2dJson = ''
   private lastWindowJson = ''
+  private lastStageJson = ''
   private live2dApplyChain: Promise<void> = Promise.resolve()
+  private stagePersistTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor() {
     // VTUBER_CONFIG 环境变量可指定替代配置文件（隔离测试实例用）；默认仓库内 backend-config.json
@@ -179,9 +181,10 @@ class VtuberService {
     })
     this.triggers.setCallback((fire) => this.onTrigger(fire))
     this.triggers.configure(this.config.triggers)
-    // 与 applyConfigRuntime 的 diff 口径一致：window/assetRegistration 单独处理，不参与模型重载判定
-    const { window: _initWin, assetRegistration: _initAssets, ...initLive2d } = this.config.live2d
+    // 与 applyConfigRuntime 的 diff 口径一致：window/assetRegistration/stage 单独处理，不参与模型重载判定
+    const { window: _initWin, assetRegistration: _initAssets, stage: _initStage, ...initLive2d } = this.config.live2d
     this.lastLive2dJson = JSON.stringify(initLive2d)
+    this.lastStageJson = JSON.stringify(this.config.live2d.stage)
 
     // 音频执行器重连后：恢复被打断的播放（音乐/TTS）
     this.audioCpp.onConnected(() => {
@@ -194,13 +197,49 @@ class VtuberService {
       this.ws.broadcast('webui', 'player.levels', params)
     })
 
-    // Live2D 执行器重连后：重推模型/窗口/资源注册配置
+    // Live2D 执行器重连后：重推模型/窗口/舞台/资源注册配置 + WebUI 地址（面板快捷入口）
     this.live2dCpp.onConnected(() => {
+      this.live2dCpp
+        .request('live2d.setEnv', { webuiUrl: `http://127.0.0.1:${this.config.server.httpPort}/` })
+        .catch(() => { /* 地址推送失败不影响其他配置 */ })
       applyLive2dConfig(this.live2dCpp, this.config.live2d).catch(() => {})
     })
     this.live2dCpp.onStateChange((state) => {
       this.ws.broadcast('webui', 'live2d.state', state)
     })
+    // 悬浮面板舞台编辑 → 持久化（不回推执行器）+ 广播 WebUI 联动
+    this.live2dCpp.onEvent('live2d.stageChanged', (params) => this.onExecutorStageChanged(params))
+  }
+
+  /** 执行器悬浮面板的舞台编辑回流：写配置 + 落盘 + 广播 WebUI（跳过 diff 回推，防环） */
+  private onExecutorStageChanged(params: unknown): void {
+    const rec = (params ?? {}) as Record<string, unknown>
+    const stage = this.config.live2d.stage
+    const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
+    if ('windX' in rec) stage.windX = num(rec.windX, stage.windX)
+    if ('windY' in rec) stage.windY = num(rec.windY, stage.windY)
+    if ('gravityX' in rec) stage.gravityX = num(rec.gravityX, stage.gravityX)
+    if ('gravityY' in rec) stage.gravityY = num(rec.gravityY, stage.gravityY)
+    if ('physicsSpeed' in rec) stage.physicsSpeed = num(rec.physicsSpeed, stage.physicsSpeed)
+    if (typeof rec.bgMode === 'string' && ['transparent', 'color', 'image'].includes(rec.bgMode)) {
+      stage.bgMode = rec.bgMode as typeof stage.bgMode
+    }
+    if (typeof rec.bgColor === 'string') stage.bgColor = rec.bgColor
+    if ('bgAlpha' in rec) stage.bgAlpha = num(rec.bgAlpha, stage.bgAlpha)
+    if (typeof rec.bgImage === 'string') stage.bgImage = rec.bgImage
+    if (typeof rec.fpsOverlay === 'boolean') stage.fpsOverlay = rec.fpsOverlay
+    // 同步快照：避免下次 onConfigChanged 把刚收到的值再推回执行器
+    this.lastStageJson = JSON.stringify(stage)
+    this.ws.broadcast('webui', 'live2d.stage', stage)
+    if (this.stagePersistTimer) clearTimeout(this.stagePersistTimer)
+    this.stagePersistTimer = setTimeout(() => {
+      this.stagePersistTimer = null
+      try {
+        saveConfig(this.config, this.configPath)
+      } catch (err) {
+        console.warn('[live2d] stage persist failed:', err instanceof Error ? err.message : String(err))
+      }
+    }, 500)
   }
 
   getRoomId(): string {
@@ -349,13 +388,21 @@ class VtuberService {
         .then(() => applyWindowConfig(this.live2dCpp, win))
         .catch(() => { /* 单次应用失败不阻断后续 */ })
     }
-    const { window: _win, assetRegistration: _assets, ...live2dRest } = this.config.live2d
+    const { window: _win, assetRegistration: _assets, stage: _stage, ...live2dRest } = this.config.live2d
     const snap = JSON.stringify(live2dRest)
     if (snap !== this.lastLive2dJson) {
       this.lastLive2dJson = snap
       // 串行队列：滑杆高频保存时旧的应用晚到会覆盖新值，按提交顺序执行
       this.live2dApplyChain = this.live2dApplyChain
         .then(() => applyLive2dConfig(this.live2dCpp, this.config.live2d))
+        .catch(() => { /* 单次应用失败不阻断后续 */ })
+    }
+    // 舞台配置单独 diff：改物理/背景/FPS 不应触发模型重载
+    const stageSnap = JSON.stringify(this.config.live2d.stage)
+    if (stageSnap !== this.lastStageJson) {
+      this.lastStageJson = stageSnap
+      this.live2dApplyChain = this.live2dApplyChain
+        .then(() => applyStageConfig(this.live2dCpp, this.config.live2d.stage))
         .catch(() => { /* 单次应用失败不阻断后续 */ })
     }
   }

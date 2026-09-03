@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import type { RpcHandler } from '../core/rpc'
 import type { CppClient } from '../cpp/client'
-import type { Live2DConfig } from '../config'
+import type { Live2DConfig, Live2DStageConfig } from '../config'
 import { resolveBackendPath, backendRoot } from '../config'
 
 function resolveModelPath(modelPath: string): string {
@@ -340,6 +340,23 @@ export function buildLive2dModule(deps: Live2DModuleDeps): Record<string, RpcHan
         y: rec.y ?? cfg.y,
       })
     },
+    /** 舞台状态：配置 + 执行器实况（含 fps） */
+    'live2d.stage': async () => {
+      const remote = await call('live2d.stage')
+      return { config: deps.getConfig().stage, remote }
+    },
+    /** 上传舞台背景图：落盘 data/live2d_bg/，返回绝对路径供写入配置 */
+    'live2d.stage.uploadBg': async (params) => {
+      const rec = (params as { filename?: string; dataBase64?: string }) ?? {}
+      const filename = path.basename(String(rec.filename || 'background.png').replace(/\\/g, '/'))
+      const data = String(rec.dataBase64 ?? '')
+      if (!filename || !data) throw new Error('live2d.stage.uploadBg requires { filename, dataBase64 }')
+      const dir = resolveBackendPath('data/live2d_bg')
+      fs.mkdirSync(dir, { recursive: true })
+      const target = path.join(dir, filename)
+      fs.writeFileSync(target, Buffer.from(data, 'base64'))
+      return { ok: true, path: target, filename }
+    },
   }
 }
 
@@ -358,7 +375,19 @@ export async function applyLive2dConfig(cpp: CppClient, config: Live2DConfig): P
   }).catch((err) => {
     console.warn('[live2d] transform from config failed:', err)
   })
+  await applyStageConfig(cpp, config.stage)
   await applyWindowConfig(cpp, config.window)
+}
+
+/** 把舞台配置（物理/背景/FPS 角标）推送给执行器（悬浮面板编辑经 stageChanged 回流，此处不回播） */
+export async function applyStageConfig(
+  cpp: CppClient,
+  stage: Live2DStageConfig,
+): Promise<void> {
+  if (!cpp.isConnected()) return
+  await cpp.request('live2d.setStage', { ...stage }).catch((err) => {
+    console.warn('[live2d] setStage failed:', err)
+  })
 }
 
 /** 把窗口配置（宽/高/透明/置顶）推送给执行器，运行时生效 */

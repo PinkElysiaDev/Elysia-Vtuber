@@ -696,6 +696,92 @@
               </div>
             </div>
           </div>
+
+          <!-- 舞台与显示：物理/背景/FPS 角标（与悬浮面板双向联动） -->
+          <div class="tactical-panel hud-corner-brackets">
+            <div class="section-header">
+              <span class="section-title">
+                <svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-bolt"/></svg>
+                <span data-i18n="l2d.stageTitle">STAGE · PHYSICS & BACKGROUND</span>
+              </span>
+              <span class="param-slider-val" id="stageFpsVal">— FPS</span>
+            </div>
+            <div style="padding:16px; display:flex; flex-direction:column; gap:14px;">
+              <!-- FPS 角标开关 -->
+              <div class="toggle-row" id="stageFpsRow" style="cursor:pointer;">
+                <div class="toggle-row-left">
+                  <div class="toggle-row-title" data-i18n="l2d.fpsOverlay">FPS 角标显示</div>
+                  <div class="toggle-row-desc" data-i18n="l2d.fpsOverlayDesc">在执行器窗口左上角常驻显示帧率</div>
+                </div>
+                <div class="toggle-row-right">
+                  <span class="toggle-row-status inactive" id="stageFpsStatus">DISABLED</span>
+                  <div class="toggle-row-led inactive" id="stageFpsLed"></div>
+                </div>
+              </div>
+
+              <!-- 物理滑块 -->
+              <div class="param-slider-group">
+                <div class="param-slider-header">
+                  <span class="param-slider-label" data-i18n="l2d.windX">风力 X</span>
+                  <span class="param-slider-val" id="valStageWindX">0.0</span>
+                </div>
+                <input type="range" class="tac-slider" id="sliderStageWindX" min="-3" max="3" step="0.1" value="0" oninput="onStageSliderChange('windX')">
+              </div>
+              <div class="param-slider-group">
+                <div class="param-slider-header">
+                  <span class="param-slider-label" data-i18n="l2d.windY">风力 Y</span>
+                  <span class="param-slider-val" id="valStageWindY">0.0</span>
+                </div>
+                <input type="range" class="tac-slider" id="sliderStageWindY" min="-3" max="3" step="0.1" value="0" oninput="onStageSliderChange('windY')">
+              </div>
+              <div class="param-slider-group">
+                <div class="param-slider-header">
+                  <span class="param-slider-label" data-i18n="l2d.gravityX">重力 X</span>
+                  <span class="param-slider-val" id="valStageGravityX">0.0</span>
+                </div>
+                <input type="range" class="tac-slider" id="sliderStageGravityX" min="-3" max="3" step="0.1" value="0" oninput="onStageSliderChange('gravityX')">
+              </div>
+              <div class="param-slider-group">
+                <div class="param-slider-header">
+                  <span class="param-slider-label" data-i18n="l2d.gravityY">重力 Y</span>
+                  <span class="param-slider-val" id="valStageGravityY">-1.0</span>
+                </div>
+                <input type="range" class="tac-slider" id="sliderStageGravityY" min="-3" max="3" step="0.1" value="-1" oninput="onStageSliderChange('gravityY')">
+              </div>
+              <div class="param-slider-group">
+                <div class="param-slider-header">
+                  <span class="param-slider-label" data-i18n="l2d.physicsSpeed">物理强度</span>
+                  <span class="param-slider-val" id="valStagePhysicsSpeed">×1.0</span>
+                </div>
+                <input type="range" class="tac-slider" id="sliderStagePhysicsSpeed" min="0" max="3" step="0.1" value="1" oninput="onStageSliderChange('physicsSpeed')">
+              </div>
+
+              <!-- 背景 -->
+              <div class="param-slider-label" style="margin:4px 0 0;" data-i18n="l2d.bgSection">背景</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <div class="cc-card" id="stageBgModeRow" style="display:flex; gap:6px; padding:6px 8px; border:1px solid var(--th-border-subtle); border-radius:2px;">
+                  <button class="tac-btn tac-btn-sm" id="bgModeTransparent" onclick="setStageBgMode('transparent')" data-i18n="l2d.bgTransparent">透明</button>
+                  <button class="tac-btn tac-btn-sm" id="bgModeColor" onclick="setStageBgMode('color')" data-i18n="l2d.bgColorMode">颜色</button>
+                  <button class="tac-btn tac-btn-sm" id="bgModeImage" onclick="setStageBgMode('image')" data-i18n="l2d.bgImageMode">图片</button>
+                </div>
+                <input type="color" id="stageBgColor" class="tac-input" style="width:44px; height:30px; padding:2px;" onchange="onStageBgColorChange()">
+                <div class="param-slider-group" style="flex:1; min-width:140px;">
+                  <div class="param-slider-header">
+                    <span class="param-slider-label" data-i18n="l2d.bgAlpha">不透明度</span>
+                    <span class="param-slider-val" id="valStageBgAlpha">100%</span>
+                  </div>
+                  <input type="range" class="tac-slider" id="sliderStageBgAlpha" min="0" max="1" step="0.05" value="1" oninput="onStageSliderChange('bgAlpha')">
+                </div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <button class="tac-btn tac-btn-sm tac-btn-primary" onclick="stageBgUploadClick()" data-i18n="l2d.bgUpload">上传背景图</button>
+                <span id="stageBgFileName" style="font-family:var(--font-mono); font-size:11px; color:var(--th-text-muted); flex:1; min-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+                <button class="tac-btn tac-btn-sm tac-btn-danger" onclick="clearStageBg()" data-i18n="l2d.bgClear">清除背景</button>
+                <input type="file" id="stageBgFile" accept=".png,.jpg,.jpeg,.bmp,.webp" style="display:none;">
+              </div>
+              <div style="font-size:11px; color:var(--th-text-muted);" data-i18n="l2d.stageHint">以上配置与模型窗口悬浮面板双向联动：任意一端修改，另一端即时同步。</div>
+            </div>
+          </div>
         </div>
 
         <!-- 资源注册：嗅探 + 分类管理 + LLM 工具注册 + 待机规律 -->
@@ -1750,7 +1836,10 @@
         }
       }
       // 进入战术面板时刷新其内嵌设置卡片（值来自最新配置）
-      if (name === 'live2d') renderPaneSettings('live2d');
+      if (name === 'live2d') {
+        renderPaneSettings('live2d');
+        initStageCardFromConfig();
+      }
       if (name === 'jukebox') { renderPaneSettings('jukebox'); void refreshJukeboxHistory(true); }
       if (name === 'audio') renderPaneSettings('audio');
       if (name === 'prompt') { renderPromptVarRef(); void renderToolLoading(); }
@@ -1968,6 +2057,175 @@
       });
       logMessage('LIVE2D', 'Pose saved as default.', 'info');
     }
+
+    // ===== 舞台与显示（与执行器悬浮面板双向联动） =====
+    // 悬浮面板编辑 → 后端广播 live2d.stage → 此处回填；正在回填时跳过保存防环
+    let stageSyncing = false;
+
+    function stageConfig() {
+      if (!activeConfig) activeConfig = {};
+      if (!activeConfig.live2d) activeConfig.live2d = {};
+      if (!activeConfig.live2d.stage) {
+        activeConfig.live2d.stage = {
+          windX: 0, windY: 0, gravityX: 0, gravityY: -1, physicsSpeed: 1,
+          bgMode: 'transparent', bgColor: '#0d1218', bgAlpha: 1, bgImage: '', fpsOverlay: false,
+        };
+      }
+      return activeConfig.live2d.stage;
+    }
+
+    const STAGE_SLIDER_IDS = {
+      windX: 'sliderStageWindX', windY: 'sliderStageWindY',
+      gravityX: 'sliderStageGravityX', gravityY: 'sliderStageGravityY',
+      physicsSpeed: 'sliderStagePhysicsSpeed', bgAlpha: 'sliderStageBgAlpha',
+    };
+
+    function onStageSliderChange(key) {
+      if (stageSyncing) return;
+      const el = document.getElementById(STAGE_SLIDER_IDS[key]);
+      if (!el) return;
+      const v = Number(el.value);
+      stageConfig()[key] = v;
+      updateStageCard();
+      savePathDebounced('live2d.stage.' + key, v, 300);
+    }
+
+    function syncStageFpsToggle(on) {
+      const status = document.getElementById('stageFpsStatus');
+      const led = document.getElementById('stageFpsLed');
+      if (!status || !led) return;
+      status.textContent = on ? 'ENABLED' : 'DISABLED';
+      status.className = 'toggle-row-status ' + (on ? 'active' : 'inactive');
+      led.className = 'toggle-row-led ' + (on ? 'active' : 'inactive');
+    }
+
+    function updateStageCard() {
+      const st = stageConfig();
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      const setSlider = (key) => { const el = document.getElementById(STAGE_SLIDER_IDS[key]); if (el) el.value = st[key]; };
+      setSlider('windX'); setSlider('windY'); setSlider('gravityX'); setSlider('gravityY'); setSlider('physicsSpeed'); setSlider('bgAlpha');
+      set('valStageWindX', Number(st.windX).toFixed(1));
+      set('valStageWindY', Number(st.windY).toFixed(1));
+      set('valStageGravityX', Number(st.gravityX).toFixed(1));
+      set('valStageGravityY', Number(st.gravityY).toFixed(1));
+      set('valStagePhysicsSpeed', '×' + Number(st.physicsSpeed).toFixed(1));
+      set('valStageBgAlpha', Math.round(Number(st.bgAlpha) * 100) + '%');
+      const colorEl = document.getElementById('stageBgColor');
+      if (colorEl && /^#[0-9a-fA-F]{6}$/.test(st.bgColor || '')) colorEl.value = st.bgColor;
+      const fileEl = document.getElementById('stageBgFileName');
+      if (fileEl) {
+        const name = (st.bgImage || '').split(/[\\/]/).pop();
+        fileEl.textContent = name || '—';
+        fileEl.title = st.bgImage || '';
+      }
+      ['Transparent', 'Color', 'Image'].forEach((m) => {
+        const btn = document.getElementById('bgMode' + m);
+        if (btn) btn.classList.toggle('tac-btn-primary', st.bgMode === m.toLowerCase());
+      });
+      syncStageFpsToggle(!!st.fpsOverlay);
+    }
+
+    function setStageBgMode(mode) {
+      if (stageSyncing) return;
+      stageConfig().bgMode = mode;
+      updateStageCard();
+      savePathDebounced('live2d.stage.bgMode', mode, 0);
+    }
+
+    function onStageBgColorChange() {
+      if (stageSyncing) return;
+      const el = document.getElementById('stageBgColor');
+      const st = stageConfig();
+      st.bgColor = el.value;
+      st.bgMode = 'color';
+      updateStageCard();
+      savePathDebounced('live2d.stage.bgColor', st.bgColor, 0);
+      savePathDebounced('live2d.stage.bgMode', 'color', 0);
+    }
+
+    function stageBgUploadClick() {
+      document.getElementById('stageBgFile').click();
+    }
+
+    function clearStageBg() {
+      if (stageSyncing) return;
+      const st = stageConfig();
+      st.bgMode = 'transparent';
+      st.bgImage = '';
+      updateStageCard();
+      savePathDebounced('live2d.stage.bgMode', 'transparent', 0);
+      savePathDebounced('live2d.stage.bgImage', '', 0);
+    }
+
+    // FPS 角标开关（点击行切换）
+    document.addEventListener('DOMContentLoaded', () => {
+      const row = document.getElementById('stageFpsRow');
+      if (row) {
+        row.onclick = () => {
+          if (stageSyncing) return;
+          const st = stageConfig();
+          st.fpsOverlay = !st.fpsOverlay;
+          updateStageCard();
+          savePathDebounced('live2d.stage.fpsOverlay', st.fpsOverlay, 0);
+        };
+      }
+    });
+
+    // 背景图上传：file → base64 → 后端落盘 data/live2d_bg/ → 写入配置
+    function initStageBgUpload() {
+      const input = document.getElementById('stageBgFile');
+      if (!input) return;
+      input.onchange = async () => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        try {
+          const dataBase64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+            reader.onerror = () => reject(new Error('读取文件失败'));
+            reader.readAsDataURL(file);
+          });
+          const res = await vtuberRPC.call('live2d.stage.uploadBg', { filename: file.name, dataBase64 });
+          const st = stageConfig();
+          st.bgImage = res.path;
+          st.bgMode = 'image';
+          updateStageCard();
+          savePathDebounced('live2d.stage.bgImage', res.path, 0);
+          savePathDebounced('live2d.stage.bgMode', 'image', 0);
+          showToast('背景图已上传: ' + file.name, 'success');
+        } catch (e) {
+          showToast('背景图上传失败: ' + (e.message || e), 'err');
+        }
+        input.value = '';
+      };
+    }
+    initStageBgUpload();
+
+    // FPS 实时读数：轮询执行器 system.status（cpp.call 透传，返回即执行器响应本体）
+    setInterval(() => {
+      const el = document.getElementById('stageFpsVal');
+      if (!el) return;
+      vtuberRPC.call('cpp.call', { target: 'live2d', method: 'system.status' })
+        .then((res) => {
+          const fps = res && res.fps;
+          if (typeof fps === 'number' && el) el.textContent = fps.toFixed(0) + ' FPS';
+        })
+        .catch(() => { /* 执行器未连接时保持占位 */ });
+    }, 2000);
+
+    // 悬浮面板编辑回流：后端广播 live2d.stage → 回填控件（跳过保存防环）
+    vtuberRPC.on('live2d.stage', (stage) => {
+      if (!stage) return;
+      stageSyncing = true;
+      activeConfig = activeConfig || {};
+      activeConfig.live2d = activeConfig.live2d || {};
+      activeConfig.live2d.stage = stage;
+      updateStageCard();
+      stageSyncing = false;
+    });
+
+    // 面板进入/配置刷新时回显舞台卡
+    function initStageCardFromConfig() { updateStageCard(); }
 
     function resetTransformSliders() {
       document.getElementById('sliderScale').value = 1.0;
