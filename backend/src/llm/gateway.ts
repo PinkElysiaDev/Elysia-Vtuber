@@ -144,6 +144,12 @@ export class LLMGateway {
     return this.config
   }
 
+  /** 当前生效模型的可读标识（运行日志用）：注册表档案名 + 模型名 */
+  getActiveModelLabel(): string {
+    const resolved = this.resolveActive()
+    return resolved.profileName ? `${resolved.profileName} (${resolved.model})` : resolved.model
+  }
+
   async chat(request: ChatRequest): Promise<ChatResult> {
     const resolved = this.resolveActive()
     if (!resolved.apiKey) {

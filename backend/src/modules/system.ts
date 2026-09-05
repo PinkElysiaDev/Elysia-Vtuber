@@ -13,10 +13,11 @@ export interface SystemModuleDeps {
   getEventCount: () => number
   getFilteredCount?: () => number
   getLastEventAt?: () => number
-  getTriggerCount?: () => number
   hasLlmKey?: () => boolean
   getJukebox?: () => { running: boolean; playing: boolean; volume: number }
   getTts?: () => { speaking: boolean; queued: number; configured: boolean }
+  /** 行为循环状态（合并器/观众/记忆/认知计数） */
+  getBehavior?: () => Record<string, unknown>
   /** 优雅关闭回调：先释放资源（含通知 C++ 执行器退出）再退出进程 */
   shutdown?: () => Promise<void> | void
 }
@@ -43,10 +44,10 @@ export function buildSystemModule(deps: SystemModuleDeps): Record<string, RpcHan
         status: deps.live2dCpp.getStatus(),
         connected: deps.live2dCpp.isConnected(),
       },
-      triggers: deps.getTriggerCount?.() ?? 0,
       llmConfigured: deps.hasLlmKey?.() ?? false,
       jukebox: deps.getJukebox?.() ?? null,
       tts: deps.getTts?.() ?? null,
+      behavior: deps.getBehavior?.() ?? null,
       uptime: process.uptime(),
     }),
 

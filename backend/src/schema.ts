@@ -27,6 +27,9 @@ export type SchemaType =
   | 'object'
   | 'array'
   | 'triggers'
+  | 'behavior'
+  | 'commands'
+  | 'instant'
 
 export interface FieldSchema {
   type: SchemaType
@@ -82,42 +85,8 @@ export function buildConfigSchema(): SectionSchema[] {
         'server.wsPort': { type: 'number', label: 'RPC 端口', default: d.server.wsPort },
       },
     },
-    {
-      key: 'events',
-      title: '事件接收',
-      description: '配置接收哪些直播间事件（来自 adapter-bililive）；总开关在「战术仪表盘」房间号卡片处切换',
-      fields: {
-        'events.enabledEvents': {
-          type: 'object',
-          label: '事件开关',
-          properties: {
-            danmaku: { type: 'boolean', label: '弹幕', default: true },
-            gift: { type: 'boolean', label: '礼物', default: true },
-            superchat: { type: 'boolean', label: '醒目留言', default: true },
-            enter: { type: 'boolean', label: '进入直播间', default: false },
-            follow: { type: 'boolean', label: '关注', default: true },
-            like: { type: 'boolean', label: '点赞', default: false },
-            guard: { type: 'boolean', label: '上舰', default: true },
-            liveStart: { type: 'boolean', label: '开播', default: true },
-            liveEnd: { type: 'boolean', label: '下播', default: true },
-          },
-        },
-        'events.filters.minGiftPrice': { type: 'number', label: '最小礼物价格(金瓜子)', min: 0, default: 0 },
-        'events.filters.minSuperchatAmount': { type: 'number', label: '最小 SC 金额(元)', min: 0, default: 0 },
-      },
-    },
-    {
-      key: 'triggers',
-      title: '触发器',
-      description: '配置事件的触发逻辑：立即 / 延迟合并 / 跨类型合并 / 定时任务',
-      fields: {
-        triggers: {
-          type: 'triggers',
-          label: '触发器规则',
-          default: d.triggers,
-        },
-      },
-    },
+    // 事件接收 / 事件上下文 / 合并策略 / 即时应对 → 「触发器」专用面板（pane-trigger）
+    // 弹幕指令 → 「指令」专用面板（pane-commands）
     {
       key: 'dataRetention',
       title: '数据持久化',
@@ -125,6 +94,7 @@ export function buildConfigSchema(): SectionSchema[] {
       fields: {
         'dataRetention.playHistoryDays': { type: 'number', label: '播放记录保留(天)', description: 'SQLite 中播放记录的保留天数，0 = 永久保留', min: 0, default: 90 },
         'dataRetention.eventHistoryDays': { type: 'number', label: '事件历史保留(天)', description: 'SQLite 中直播事件历史的保留天数，0 = 永久保留', min: 0, default: 30 },
+        'dataRetention.llmTraceDays': { type: 'number', label: '大脑运行日志保留(天)', description: '每次模型调用的完整留痕保留天数，0 = 永久保留', min: 0, default: 7 },
         'dataRetention.frontendLogMax': { type: 'number', label: '前端事件日志上限(条)', description: 'WebUI 事件流面板最多显示的条数（仅影响显示，不影响存储）', min: 50, default: 200 },
       },
     },
@@ -192,7 +162,7 @@ export function buildConfigSchema(): SectionSchema[] {
         'music.nowPlaying.windowEnabled': { type: 'boolean', label: '开启歌曲信息叠加页 (nowplaying.html)', default: true },
         'music.autoStartJukebox': { type: 'boolean', label: '自动启动', default: false },
         'music.dedupe': { type: 'boolean', label: '点歌去重', default: false },
-        'music.directOrder': { type: 'directOrderCard', label: '点歌指令配置' },
+        // directOrder 已迁移至「弹幕指令」面板（commands），此处不再提供编辑入口
         'music.nowPlaying.outputs': { type: 'npOutputs', label: '歌曲信息文本输出' },
         // 空闲歌单（idlePlaylists/idleLoop）仍在点歌机中台「IDLE PLAYLIST」双栏卡片编辑
         // 播放输出设备统一在「音频中枢路由」面板配置，避免双入口

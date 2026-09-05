@@ -32,9 +32,10 @@ export interface EventReceiverDeps {
   db?: import('../core/database').VtuberDatabase
 }
 
-/** 事件类型白名单（已知类型） */
+/** 事件类型白名单（已知类型；system.* 为内部后台事件，另有目录见 core/event-catalog.ts） */
 export const KNOWN_EVENT_TYPES = [
   'danmaku', 'gift', 'superchat', 'enter', 'follow', 'like', 'guard', 'liveStart', 'liveEnd',
+  'online', 'watchedChange',
 ] as const
 
 export function buildEventModule(deps: EventReceiverDeps): Record<string, RpcHandler> {
@@ -44,7 +45,8 @@ export function buildEventModule(deps: EventReceiverDeps): Record<string, RpcHan
     if (cfg.enabled === false) return false
     const { enabledEvents, filters } = cfg
     const enabled = enabledEvents as Record<string, boolean>
-    if (!enabled[event.type]) return false
+    // 系统后台事件（system.*）由内部发射点控制，不受直播间事件白名单约束
+    if (!String(event.type).startsWith('system.') && !enabled[event.type]) return false
 
     // 阈值过滤
     if (event.type === 'gift') {

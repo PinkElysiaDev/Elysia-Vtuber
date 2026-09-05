@@ -19,14 +19,16 @@ export interface SessionDeps {
 export interface SessionResult {
   content: string
   rounds: number
-  toolCalls: Array<{ name: string; ok: boolean }>
+  /** 工具调用明细（含参数，供认知层提取 send_reply 输出与 stay_silent 理由） */
+  toolCalls: Array<{ name: string; ok: boolean; args?: Record<string, unknown> }>
   finishReason: string
 }
 
 const DEFAULT_SYSTEM = [
-  '你是直播间的 AI VTuber。根据事件用工具互动。',
+  '你是直播间的 AI VTuber。根据事件清单用工具互动。',
   '回复观众时必须调用 send_reply，segments 的 method 只能是 danmaku / display / tts。',
   '弹幕要短；展示板可以稍长；tts 只放需要朗读的句子。',
+  '判断此刻没有值得回应的内容时，调用 stay_silent 并给出简短理由，不要强行找话。',
   '不要编造未发生的礼物或上舰。点歌等能力通过对应工具完成。',
 ].join('\n')
 
@@ -60,7 +62,7 @@ export class LLMSession {
     const specs = useTools
       ? this.deps.tools.list().filter((t) => gate[t.name] !== false)
       : []
-    const toolCalls: Array<{ name: string; ok: boolean }> = []
+    const toolCalls: Array<{ name: string; ok: boolean; args?: Record<string, unknown> }> = []
     let content = ''
     let finishReason = ''
 
@@ -84,7 +86,7 @@ export class LLMSession {
 
       for (const call of result.toolCalls) {
         const payload = await this.invoke(call)
-        toolCalls.push({ name: call.name, ok: payload.ok })
+        toolCalls.push({ name: call.name, ok: payload.ok, args: call.arguments ?? {} })
         messages.push({
           role: 'tool',
           name: call.name,

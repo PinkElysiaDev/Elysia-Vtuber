@@ -17,6 +17,8 @@ export interface OutputRouterDeps {
   sendDanmaku: (text: string, roomId: string) => void
   displayText: (text: string, style: string, emotion: string) => void
   speak: (text: string) => void
+  /** 输出被跳过时的回调（可观测性：禁用/限流原因进前端日志） */
+  onSkip?: (method: ReplyMethod, text: string, reason: 'disabled' | 'rate-limited') => void
 }
 
 export class OutputRouter {
@@ -47,18 +49,30 @@ export class OutputRouter {
   private async dispatch(method: ReplyMethod, text: string, segment: ReplySegment): Promise<boolean> {
     const config = this.deps.getConfig()
     if (method === 'danmaku') {
-      if (!config.danmaku.enabled) return false
-      if (!this.allowDanmaku(config.danmaku.ratePerMinute)) return false
+      if (!config.danmaku.enabled) {
+        this.deps.onSkip?.('danmaku', text, 'disabled')
+        return false
+      }
+      if (!this.allowDanmaku(config.danmaku.ratePerMinute)) {
+        this.deps.onSkip?.('danmaku', text, 'rate-limited')
+        return false
+      }
       this.deps.sendDanmaku(text, this.deps.getRoomId())
       return true
     }
     if (method === 'display') {
-      if (!config.display.enabled) return false
+      if (!config.display.enabled) {
+        this.deps.onSkip?.('display', text, 'disabled')
+        return false
+      }
       this.deps.displayText(text, segment.displayStyle || config.display.style, segment.emotion || 'neutral')
       return true
     }
     if (method === 'tts') {
-      if (!config.tts.enabled) return false
+      if (!config.tts.enabled) {
+        this.deps.onSkip?.('tts', text, 'disabled')
+        return false
+      }
       const delay = config.tts.delayBeforeSpeakMs
       if (delay > 0) await sleep(delay)
       this.deps.speak(text)

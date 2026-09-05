@@ -475,19 +475,23 @@
         <svg><use href="#icon-cpu"/></svg>
         <span data-i18n="nav.prompt">PROMPT STUDIO</span>
       </div>
-      <div class="nav-item" data-cfg-section="events" onclick="selectConfigFromNav('events')">
+      <div class="nav-item" onclick="switchPane('trigger')">
         <svg><use href="#icon-pulse"/></svg>
-        <span data-i18n="nav.events">EVENT RECEPTION</span>
+        <span data-i18n="nav.trigger">TRIGGER</span>
       </div>
-      <div class="nav-item" data-cfg-section="triggers" onclick="selectConfigFromNav('triggers')">
+      <div class="nav-item" onclick="switchPane('commands')">
         <svg><use href="#icon-bolt"/></svg>
-        <span data-i18n="nav.triggers">TRIGGER RULES</span>
+        <span data-i18n="nav.commands">COMMANDS</span>
       </div>
       <div class="nav-item" data-cfg-section="output" onclick="selectConfigFromNav('output')">
         <svg><use href="#icon-sliders"/></svg>
         <span data-i18n="nav.output">OUTPUT STRATEGY</span>
       </div>
       <div class="nav-group-label" data-i18n="nav.systemLabel">SYSTEM CONFIG</div>
+      <div class="nav-item" onclick="switchPane('logs')">
+        <svg><use href="#icon-terminal"/></svg>
+        <span data-i18n="nav.logs">LOGS</span>
+      </div>
       <div class="nav-item" data-cfg-section="server" onclick="selectConfigFromNav('server')">
         <svg><use href="#icon-globe"/></svg>
         <span data-i18n="nav.server">SERVICE NETWORK</span>
@@ -542,9 +546,9 @@
             <div style="font-size:11px; color:var(--th-text-muted);" id="statEventLast" data-i18n="dash.eventBusDesc">EVENT BUS QUEUE PASS</div>
           </div>
           <div class="tactical-panel hud-corner-brackets" style="padding:16px;">
-            <div class="param-slider-label" data-i18n="dash.activeTriggers">ACTIVE TRIGGER RULES</div>
-            <div style="font-size:24px; font-weight:900; color:var(--th-warning); margin-top:4px;" id="statTriggers">0</div>
-            <div style="font-size:11px; color:var(--th-text-muted);" data-i18n="dash.triggerDesc">DEBOUNCED & CRON ENGINES</div>
+            <div class="param-slider-label" data-i18n="dash.cognitionCalls">COGNITION CALLS</div>
+            <div style="font-size:24px; font-weight:900; color:var(--th-warning); margin-top:4px;" id="statCognition">0</div>
+            <div style="font-size:11px; color:var(--th-text-muted);" data-i18n="dash.cognitionDesc">REPLIED / SILENT / ERROR</div>
           </div>
         </div>
 
@@ -602,7 +606,10 @@
                 <svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-terminal"/></svg>
                 <span data-i18n="dash.realtimeLog">REALTIME LOG STREAM</span>
               </span>
-              <button class="tac-btn tac-btn-sm" onclick="clearLogs()" data-i18n="dash.clearLog">CLEAR</button>
+              <div style="display:flex; gap:6px;">
+                <button class="tac-btn tac-btn-sm" onclick="switchPane('logs')">查看全部 →</button>
+                <button class="tac-btn tac-btn-sm" onclick="clearLogs()" data-i18n="dash.clearLog">CLEAR</button>
+              </div>
             </div>
             <div class="log-stream-box" id="logStream"></div>
           </div>
@@ -1212,6 +1219,69 @@
         </div>
       </section>
 
+      <!-- ================= 1.6 TRIGGER 触发器（接收/上下文/合并/即时应对） ================= -->
+      <section id="pane-trigger" class="workspace-pane">
+        <div id="triggerPaneBody" style="display:flex; flex-direction:column; gap:14px;"></div>
+      </section>
+
+      <!-- ================= 1.7 COMMANDS 弹幕指令 ================= -->
+      <section id="pane-commands" class="workspace-pane">
+        <div id="commandsPaneBody" style="display:flex; flex-direction:column; gap:14px;"></div>
+      </section>
+
+      <!-- ================= 5.5 LOGS 日志（系统 + 大脑运行） ================= -->
+      <section id="pane-logs" class="workspace-pane">
+        <div class="tactical-panel hud-corner-brackets">
+          <div class="section-header">
+            <span class="section-title">
+              <svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-terminal"/></svg>
+              <span data-i18n="nav.logs">LOGS · 运行日志</span>
+            </span>
+            <span class="section-title-badge">OBSERVABILITY</span>
+          </div>
+          <div style="padding:16px; display:flex; flex-direction:column; gap:12px;">
+            <div style="display:flex; gap:8px;">
+              <button class="tac-btn tac-btn-sm active" data-logstab="sys" onclick="switchLogsTab('sys')">系统日志</button>
+              <button class="tac-btn tac-btn-sm" data-logstab="cog" onclick="switchLogsTab('cog')">大脑运行日志</button>
+            </div>
+            <div id="logsTabSys" style="display:flex; flex-direction:column; gap:8px;">
+              <div style="display:flex; gap:8px; align-items:center;">
+                <select id="sysLogTagFilter" class="tac-select" style="width:170px;" onchange="onSysLogFilterChange()">
+                  <option value="">全部标签</option>
+                </select>
+                <button class="tac-btn tac-btn-sm" type="button" onclick="clearLogs()">清空</button>
+                <span style="font-size:11px; color:var(--th-text-muted);">与首页实时日志流同口径（近 1000 条）</span>
+              </div>
+              <div class="tactical-panel-elevated clip-chamfer" style="padding:12px; display:flex; gap:8px; align-items:center;">
+                <input id="testDanmakuInput" class="tac-input" style="flex:1;" placeholder="发送测试弹幕：验证 后端→插件→B站 完整链路">
+                <button class="tac-btn tac-btn-primary btn-lamp tac-btn-sm" type="button" onclick="sendTestDanmaku()">发送测试弹幕</button>
+              </div>
+              <div class="log-stream-box" id="logStreamFull" style="height:calc(100vh - 400px);"></div>
+            </div>
+            <div id="logsTabCog" style="display:none; flex-direction:column; gap:12px;">
+              <div id="cogStatusBar" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-family:var(--font-mono); font-size:11px; color:var(--th-text-secondary);"></div>
+              <div class="tactical-panel-elevated clip-chamfer" style="padding:12px; display:flex; gap:8px; align-items:center;">
+                <input id="cogDirectiveInput" class="tac-input" style="flex:1;" placeholder="定向指令（可留空）：如 向大家介绍一下你自己">
+                <button class="tac-btn tac-btn-primary btn-lamp tac-btn-sm" type="button" onclick="cognitionFireManual()">手动唤醒大脑</button>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <select id="cogSourceFilter" class="tac-select" style="width:180px;" onchange="loadCognitionTraces()">
+                  <option value="">全部来源</option>
+                  <option value="batcher">合并触发 (batcher)</option>
+                  <option value="instant">即时插队 (instant)</option>
+                  <option value="manual">手动 (manual)</option>
+                  <option value="playground">Playground</option>
+                </select>
+                <button class="tac-btn tac-btn-sm" type="button" onclick="loadCognitionTraces()">刷新</button>
+                <button class="tac-btn tac-btn-sm tac-btn-danger" type="button" onclick="clearCognitionTraces()">清空日志</button>
+                <span id="cogTotalBadge" class="tac-badge" style="margin-left:auto;"></span>
+              </div>
+              <div id="cogTraceList" style="display:flex; flex-direction:column; gap:8px; max-height:calc(100vh - 420px); overflow-y:auto;"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- ================= 6. PROMPT STUDIO ================= -->
       <section id="pane-prompt" class="workspace-pane">
         <div class="tactical-grid-2">
@@ -1225,15 +1295,6 @@
               <button class="tac-btn tac-btn-sm tac-btn-success" onclick="saveSystemPrompt()" data-i18n="prompt.save">SAVE PROMPT</button>
             </div>
             <div style="padding:16px; display:flex; flex-direction:column; gap:10px;">
-              <div class="param-slider-label" data-i18n="prompt.chipsLabel">VARIABLE INSERTION CHIPS (CLICK TO INSERT)</div>
-              <div style="display:flex; flex-wrap:wrap; gap:6px;">
-                <span class="var-chip" onclick="insertPromptVar('{{roomId}}')" data-tooltip="直播间房间号">{{roomId}}</span>
-                <span class="var-chip" onclick="insertPromptVar('{{events}}')" data-tooltip="合并后的事件详情列表">{{events}}</span>
-                <span class="var-chip" onclick="insertPromptVar('{{history}}')" data-tooltip="最近20条历史事件上下文">{{history}}</span>
-                <span class="var-chip" onclick="insertPromptVar('{{user}}')" data-tooltip="触发事件用户名">{{user}}</span>
-                <span class="var-chip" onclick="insertPromptVar('{{content}}')" data-tooltip="弹幕或SC文本">{{content}}</span>
-                <span class="var-chip" onclick="insertPromptVar('{{now}}')" data-tooltip="当前标准时间戳">{{now}}</span>
-              </div>
               <textarea id="systemPromptArea" class="tac-textarea" style="height:280px; line-height:1.5; font-family:var(--font-mono);"></textarea>
             </div>
           </div>
@@ -1672,6 +1733,20 @@
     function logMessage(tag, msg, type = 'info') {
       const stream = document.getElementById('logStream');
       const time = new Date().toLocaleTimeString();
+      // 统一口径：日志页与首页共用同一缓冲（近 1000 条）
+      if (typeof SYS_LOG_BUFFER !== 'undefined') {
+        SYS_LOG_BUFFER.push({ time, tag, msg, type });
+        if (SYS_LOG_BUFFER.length > 1000) SYS_LOG_BUFFER.shift();
+        const full = document.getElementById('logStreamFull');
+        if (full && (!SYS_LOG_TAG_FILTER || SYS_LOG_TAG_FILTER === tag)) {
+          const div2 = document.createElement('div');
+          div2.className = 'log-line';
+          div2.innerHTML = '<span class="log-time">[' + time + ']</span><span class="log-tag ' + type + '">[' + tag + ']</span> <span>' + escapeHtml(msg) + '</span>';
+          full.appendChild(div2);
+          while (full.childElementCount > 1000) full.removeChild(full.firstChild);
+          full.scrollTop = full.scrollHeight;
+        }
+      }
       const div = document.createElement('div');
       div.className = 'log-line';
       div.innerHTML = `<span class="log-time">[${time}]</span><span class="log-tag ${type}">[${tag}]</span> <span>${escapeHtml(msg)}</span>`;
@@ -1702,6 +1777,9 @@
 
     function clearLogs() {
       document.getElementById('logStream').innerHTML = '';
+      if (typeof SYS_LOG_BUFFER !== 'undefined') SYS_LOG_BUFFER = [];
+      const full = document.getElementById('logStreamFull');
+      if (full) full.innerHTML = '';
     }
 
     /* —— 房间号卡片：点击文字=编辑房间号；点击卡片=切换事件接收 —— */
@@ -1845,6 +1923,9 @@
       if (name === 'prompt') { renderPromptVarRef(); void renderToolLoading(); }
       if (name === 'mcp') void renderMcpServers();
       if (name === 'llmmodels') void renderLlmModels();
+      if (name === 'trigger') { void ensureTriggerPaneData().then(() => renderTriggerPane()) }
+      if (name === 'commands') { void ensureTriggerPaneData().then(() => renderCommandsPane()) }
+      if (name === 'logs') { switchLogsTab('sys'); refreshSysLogTags(); renderSysLogFull() }
       // 音频面板：进入即重拉设备（执行器可能刚连上）
       if (name === 'audio') void loadAudioDevices();
     }
@@ -1880,7 +1961,8 @@
             lastEl.textContent = '尚无事件到达（检查 Koishi 侧插件转发与日志）';
           }
         }
-        document.getElementById('statTriggers').innerText = sys.triggers || 0;
+        const cogCounts = (sys.behavior && sys.behavior.counts) || {};
+        document.getElementById('statCognition').innerText = (cogCounts.replied || 0) + (cogCounts.silent || 0) + (cogCounts.error || 0);
 
         // C++ Status
         updateCppBadge(Boolean(sys.live2d && sys.live2d.connected));
@@ -3197,40 +3279,233 @@
     }
 
     /** 变量参考卡：系统提示词可用的全部 token（与后端 src/core/variables.ts 对齐） */
-    const PROMPT_VAR_REFERENCE = [
-      ['{{roomId}}', 'prompt.vrRoom'],
-      ['{{events}}', 'prompt.vrEvents'],
-      ['{{history}}', 'prompt.vrHistory'],
-      ['{{user}}', 'prompt.vrUser'],
-      ['{{content}}', 'prompt.vrContent'],
-      ['{{now}}', 'prompt.vrNow'],
-      ['{{now:iso}}', 'prompt.vrNowIso'],
-      ['{{eventCount}}', 'prompt.vrEventCount'],
-      ['{{type}}', 'prompt.vrType'],
-      ['{{event.xxx}}', 'prompt.vrEventPath'],
-      ['{{extra.xxx}}', 'prompt.vrExtraPath'],
-    ];
+/** 变量参考分组：通用 / 事件信息（最近事件）/ 事件清单 / 后端状态 / 点路径 */
+const PROMPT_VAR_GROUPS = [
+  {
+    title: '通用',
+    vars: [
+      ['{{roomId}}', '直播间房间号'],
+      ['{{now}}', '当前时间（格式/时区可在设置中自定义）', 'now'],
+      ['{{now:iso}}', '当前时间（ISO 8601 格式）'],
+      ['{{memory}}', '你最近说过的话（自我记忆，防重复感谢/玩梗）'],
+      ['{{history}}', 'event history：按设置筛选的近期事件历史', 'history'],
+    ],
+  },
+  {
+    title: '事件信息（最近一条事件）',
+    vars: [
+      ['{{user.uid}}', '用户 UID'],
+      ['{{user.name}}', '用户昵称'],
+      ['{{user.fansMedal.name}}', '粉丝牌名称'],
+      ['{{user.fansMedal.level}}', '粉丝牌等级'],
+      ['{{user.guardLevel}}', '舰长等级（1总督 2提督 3舰长）'],
+      ['{{type}}', '事件类型（danmaku/gift/…）'],
+      ['{{content}}', '弹幕或 SC 文本'],
+      ['{{gift.name}}', '礼物名称'],
+      ['{{gift.num}}', '礼物数量'],
+      ['{{gift.priceYuan}}', '礼物单价（元）'],
+      ['{{gift.totalPriceYuan}}', '礼物总价（元）'],
+      ['{{sc.price}}', 'SC 金额（元）'],
+      ['{{sc.message}}', 'SC 留言内容'],
+      ['{{song.title}}', '点歌歌名'],
+      ['{{song.artist}}', '歌手'],
+      ['{{song.userName}}', '点歌人昵称'],
+    ],
+  },
+  {
+    title: '事件清单（内容由触发器决定）',
+    vars: [
+      ['{{events}}', '本次合并触发的事件清单（主播视角日志块）'],
+      ['{{eventCount}}', '本批事件条数'],
+    ],
+  },
+  {
+    title: '后端状态',
+    vars: [
+      ['{{state.jukebox.playing}}', '点歌机正在播放（歌名 - 歌手）'],
+      ['{{state.jukebox.queue}}', '待播队列（N 首）'],
+      ['{{state.jukebox.running}}', '点歌机是否运行中'],
+      ['{{state.live2d.model}}', '当前 Live2D 模型名'],
+      ['{{state.live2d.connected}}', 'Live2D 执行器是否已连接'],
+    ],
+  },
+];
 
     function renderPromptVarRef() {
       const host = document.getElementById('promptVarRef');
       if (!host) return;
       host.innerHTML = '';
-      for (const [token, key] of PROMPT_VAR_REFERENCE) {
+      const makeRow = (build) => {
         const row = document.createElement('div');
         row.style.cssText = 'border:1px solid var(--th-border-subtle); border-radius:2px; padding:8px 10px; display:flex; flex-direction:column; gap:4px;';
+        build(row);
+        return row;
+      };
+      const makeChip = (token) => {
         const t = document.createElement('span');
         t.className = 'var-chip';
-        t.style.alignSelf = 'flex-start';
         t.style.cursor = 'pointer';
         t.textContent = token;
         t.onclick = () => insertPromptVar(token);
+        return t;
+      };
+      for (const group of PROMPT_VAR_GROUPS) {
+        // 分组标题行
+        const head = document.createElement('div');
+        head.style.cssText = 'grid-column:1 / -1; display:flex; align-items:center; gap:8px;';
+        head.innerHTML = `<span class="param-slider-label" style="margin:0;">${group.title}</span>
+          <span style="flex:1; height:1px; background:var(--th-border-subtle);"></span>`;
+        host.appendChild(head);
+        for (const [token, descText, setting] of group.vars) {
+          host.appendChild(makeRow((row) => {
+            const top = document.createElement('div');
+            top.style.cssText = 'display:flex; align-items:center; gap:6px;';
+            top.appendChild(makeChip(token));
+            if (setting) {
+              const gear = document.createElement('button');
+              gear.className = 'tac-btn tac-btn-sm';
+              gear.type = 'button';
+              gear.style.cssText = 'padding:1px 6px; font-size:10px; margin-left:auto; flex-shrink:0;';
+              gear.textContent = '⚙ 设置';
+              gear.onclick = () => openVarSettingModal(setting);
+              top.appendChild(gear);
+            }
+            row.appendChild(top);
+            const desc = document.createElement('span');
+            desc.style.cssText = 'font-size:11px; color:var(--th-text-secondary); line-height:1.5;';
+            desc.textContent = descText;
+            row.appendChild(desc);
+          }));
+        }
+      }
+      // 两个点路径变量合并为一格展示（双 chip + 共用说明）
+      host.appendChild(makeRow((row) => {
+        const chips = document.createElement('div');
+        chips.style.cssText = 'display:flex; gap:6px; flex-wrap:wrap;';
+        chips.appendChild(makeChip('{{event.xxx}}'));
+        chips.appendChild(makeChip('{{extra.xxx}}'));
         const desc = document.createElement('span');
         desc.style.cssText = 'font-size:11px; color:var(--th-text-secondary); line-height:1.5;';
-        desc.textContent = vtuberI18n.t(key);
-        row.appendChild(t);
+        desc.textContent = vtuberI18n.t('prompt.vrPathVars');
+        row.appendChild(chips);
         row.appendChild(desc);
-        host.appendChild(row);
+      }));
+    }
+
+    // ============ 变量设置二级页（{{now}} / {{history}} event history） ============
+
+    const HISTORY_SOURCE_NAMES = {
+      danmaku: '弹幕', gift: '礼物', superchat: '醒目留言', enter: '进入直播间', follow: '关注',
+      like: '点赞', guard: '上舰', liveStart: '开播', liveEnd: '下播', system: '系统后台事件',
+    };
+
+    function ensureVarSettingModal() {
+      let modal = document.getElementById('varSettingModal');
+      if (modal) return modal;
+      modal = document.createElement('div');
+      modal.id = 'varSettingModal';
+      modal.className = 'modal-backdrop';
+      modal.innerHTML = `
+        <div class="modal-box hud-corner-brackets" style="max-width:520px;">
+          <div class="modal-header">
+            <span class="section-title">变量设置</span>
+            <button class="tac-btn tac-btn-sm" type="button" onclick="closeVarSettingModal()">关闭</button>
+          </div>
+          <div class="modal-body" id="varSettingBody" style="display:flex; flex-direction:column; gap:14px; padding:16px;"></div>
+        </div>`;
+      modal.addEventListener('click', (e) => { if (e.target === modal) closeVarSettingModal(); });
+      document.body.appendChild(modal);
+      return modal;
+    }
+
+    function closeVarSettingModal() {
+      document.getElementById('varSettingModal')?.classList.remove('open');
+    }
+
+    async function openVarSettingModal(kind) {
+      const modal = ensureVarSettingModal();
+      if (!activeConfig) {
+        try { activeConfig = await vtuberRPC.call('config.get', {}); } catch { /* 忽略 */ }
       }
+      if (!activeConfig) { showToast('配置未加载', 'err'); return; }
+      const llm = activeConfig.llm = activeConfig.llm || {};
+      llm.variables = llm.variables || { history: { count: 20, sources: {} }, now: { detail: 'datetime', timezone: 'local', offsetHours: 0, template: '' } };
+      const body = modal.querySelector('#varSettingBody');
+      body.innerHTML = '';
+
+      const persist = () => {
+        void vtuberRPC.call('config.updatePaths', {
+          entries: [{ path: 'llm.variables', value: llm.variables }],
+        }).then((latest) => { if (latest && typeof latest === 'object') activeConfig = latest; })
+          .catch((e) => showToast('保存失败: ' + (e.message || e), 'err'));
+      };
+
+      if (kind === 'history') {
+        modal.querySelector('.section-title').textContent = 'event history 变量设置';
+        const h = llm.variables.history = llm.variables.history || { count: 20, sources: {} };
+        h.sources = h.sources || {};
+        body.innerHTML = `
+          <div>
+            <label class="param-slider-label">进入历史的事件来源（勾选 = 进入 {{history}}）</label>
+            <div class="trigger-chip-group" style="margin-top:6px;">
+              ${Object.entries(HISTORY_SOURCE_NAMES).map(([key, label]) => `
+                <label class="trigger-chip">
+                  <input type="checkbox" data-hsrc="${key}" hidden ${h.sources[key] !== false ? 'checked' : ''}>
+                  <span class="tac-dot"></span><span>${label}</span></label>`).join('')}
+            </div>
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-field-label">条目数量（最多保留多少条事件）</label>
+            <input class="tac-input" type="number" id="vsHistoryCount" min="1" max="100" value="${Number(h.count ?? 20)}">
+          </div>`;
+        body.querySelectorAll('[data-hsrc]').forEach((el) => {
+          el.onchange = () => { h.sources[el.dataset.hsrc] = el.checked; persist(); };
+        });
+        body.querySelector('#vsHistoryCount').onchange = (e) => {
+          h.count = Math.max(1, Math.min(100, Number(e.target.value) || 20));
+          persist();
+        };
+      } else if (kind === 'now') {
+        modal.querySelector('.section-title').textContent = 'now 变量设置';
+        const n = llm.variables.now = llm.variables.now || { detail: 'datetime', timezone: 'local', offsetHours: 0, template: '' };
+        body.innerHTML = `
+          <div class="cfg-field">
+            <label class="cfg-field-label">详细程度</label>
+            <select class="tac-select" id="vsNowDetail">
+              <option value="datetime" ${n.detail === 'datetime' ? 'selected' : ''}>完整日期时间</option>
+              <option value="date" ${n.detail === 'date' ? 'selected' : ''}>仅日期</option>
+              <option value="time" ${n.detail === 'time' ? 'selected' : ''}>仅时间</option>
+            </select>
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-field-label">时区</label>
+            <select class="tac-select" id="vsNowTz">
+              <option value="local" ${n.timezone === 'local' ? 'selected' : ''}>本地时区</option>
+              <option value="utc" ${n.timezone === 'utc' ? 'selected' : ''}>UTC</option>
+              <option value="offset" ${n.timezone === 'offset' ? 'selected' : ''}>自定义偏移</option>
+            </select>
+          </div>
+          <div class="cfg-field" id="vsNowOffsetWrap" style="display:${n.timezone === 'offset' ? '' : 'none'};">
+            <label class="cfg-field-label">偏移小时（-12 ~ 14）</label>
+            <input class="tac-input" type="number" id="vsNowOffset" min="-12" max="14" value="${Number(n.offsetHours ?? 0)}">
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-field-label" title="留空则按详细程度默认格式">自定义模板（占位符：YYYY MM DD HH mm ss）</label>
+            <input class="tac-input" id="vsNowTemplate" placeholder="如：MM月DD日 HH:mm" value="${escapeHtml(n.template ?? '')}">
+          </div>`;
+        body.querySelector('#vsNowDetail').onchange = (e) => { n.detail = e.target.value; persist(); };
+        body.querySelector('#vsNowTz').onchange = (e) => {
+          n.timezone = e.target.value;
+          body.querySelector('#vsNowOffsetWrap').style.display = n.timezone === 'offset' ? '' : 'none';
+          persist();
+        };
+        body.querySelector('#vsNowOffset').onchange = (e) => {
+          n.offsetHours = Math.max(-12, Math.min(14, Number(e.target.value) || 0));
+          persist();
+        };
+        body.querySelector('#vsNowTemplate').onchange = (e) => { n.template = e.target.value; persist(); };
+      }
+      modal.classList.add('open');
     }
 
     /** 工具加载管理：列出全部已注册工具，开关写 llm.tools（缺失=启用） */
@@ -3364,18 +3639,6 @@
     let CFG_CURRENT_SECTION = null;
     let musicLoginPollTimer = null;
 
-    const EVENT_TYPES_LIST = ['danmaku', 'gift', 'superchat', 'enter', 'follow', 'like', 'guard', 'liveStart', 'liveEnd'];
-    const TRIGGER_MODES_LIST = [
-      { value: 'immediate', label: '立即 (immediate)' },
-      { value: 'debounce', label: '延迟合并 (debounce)' },
-      { value: 'cross-merge', label: '跨类型合并 (cross-merge)' },
-      { value: 'scheduled', label: '定时调度 (scheduled)' },
-    ];
-    const TRIGGER_ACTIONS_LIST = [
-      { value: 'llm-request', label: '调用 LLM 推理' },
-      { value: 'call-tool', label: '调用系统工具' },
-      { value: 'wait', label: '等待延时 (ms)' },
-    ];
     const MUSIC_PROVIDER_NAMES = {
       netease: '网易云音乐 (Netease)',
       qq: 'QQ 音乐 (QQMusic)',
@@ -3426,14 +3689,13 @@
       renderConfigSection();
     }
 
-    // —— 配置自动保存：即改即存（脏字段去抖合并）。触发器分区仍走显式保存 ——
+    // —— 配置自动保存：即改即存（脏字段去抖合并）。复杂结构分区（触发器/行为/指令/即时）走显式保存 ——
     let autoSaveTimer = null;
     const autoSaveDirty = new Set();
     const autoSaveMetas = new Map();
     let autoSaveLastAt = null;
 
     function scheduleAutoSave(path, meta, delayMs) {
-      if (CFG_CURRENT_SECTION === 'triggers') return;
       autoSaveDirty.add(path);
       autoSaveMetas.set(path, meta);
       updateAutoSaveBadge('pending');
@@ -3520,9 +3782,9 @@
       CFG_CURRENT_SECTION = sec.key;
       document.getElementById('cfgSectionTitle').textContent = sec.title;
       document.getElementById('cfgSectionIntro').textContent = sec.description || '';
-      // 常规分区即改即存；触发器编辑器结构复杂，保留显式保存防半成品落盘
+      // 常规分区即改即存；复杂结构编辑器（触发器/行为/指令/即时）保留显式保存防半成品落盘
       const saveBtn = document.getElementById('cfgSaveBtn');
-      if (saveBtn) saveBtn.style.display = sec.key === 'triggers' ? '' : 'none';
+      if (saveBtn) saveBtn.style.display = 'none';
 
       const grid = document.getElementById('cfgFields');
       grid.innerHTML = '';
@@ -4452,7 +4714,7 @@
 
     function renderCfgField(path, meta, value) {
       const wrap = document.createElement('div');
-      const isSpan2 = meta.type === 'json' || meta.type === 'kv' || meta.type === 'output' || meta.type === 'npOutputs' || meta.type === 'directOrderCard' || meta.type === 'triggers' || meta.type === 'object' || meta.multiline
+      const isSpan2 = meta.type === 'json' || meta.type === 'kv' || meta.type === 'output' || meta.type === 'npOutputs' || meta.type === 'object' || meta.multiline
         || meta.control === 'stringList' || meta.control === 'channelCommands';
       wrap.className = 'cfg-field' + (isSpan2 ? ' span-2' : '');
       wrap.dataset.path = path;
@@ -4462,7 +4724,7 @@
       label.className = 'cfg-field-label';
       label.textContent = meta.label || path;
       // 自定义卡片类型自带完整标题头（section-header），跳过外层 label 避免双层标题
-      const selfTitled = meta.type === 'directOrderCard' || meta.type === 'npOutputs' || meta.type === 'output' || meta.type === 'font';
+      const selfTitled = meta.type === 'npOutputs' || meta.type === 'output' || meta.type === 'font';
       if (meta.type !== 'boolean' && !selfTitled) wrap.appendChild(label);
 
       if (meta.control === 'stringList') {
@@ -4581,8 +4843,6 @@
         wrap.appendChild(ta);
       } else if (meta.type === 'npOutputs') {
         wrap.appendChild(renderCfgNpOutputs());
-      } else if (meta.type === 'directOrderCard') {
-        wrap.appendChild(renderCfgDirectOrderCard());
       } else if (meta.type === 'output') {
         wrap.appendChild(renderCfgOutputPanel(path, meta));
       } else if (meta.type === 'font') {
@@ -4591,8 +4851,6 @@
         wrap.appendChild(renderCfgKvControl(path, meta, value));
       } else if (meta.type === 'object') {
         wrap.appendChild(renderCfgObjectMatrix(path, meta, value));
-      } else if (meta.type === 'triggers') {
-        wrap.appendChild(renderCfgTriggerEditor(value || meta.default || []));
       } else if (meta.optionsSource) {
         wrap.appendChild(renderCfgOptionsSource(path, meta, value));
       } else if (meta.multiline) {
@@ -4788,340 +5046,1290 @@
       return row;
     }
 
-    // 触发器卡片折叠态（按规则 id 记忆；默认全部折叠，新增规则自动展开）
-    const triggerExpanded = new Set();
+    // ============ 触发器面板（事件接收 / 事件清单 / 合并策略 / 即时应对，自动保存） ============
 
-    function renderCfgTriggerEditor(list) {
-      const root = document.createElement('div');
-      root.className = 'trigger-list-box';
-      root.id = 'triggerRoot';
+    let TRIGGER_CATALOG = [];
+    let INSTANT_SCHEMA = null;
+    let ABILITIES = [];
+    let triggerPreviewTimer = null;
+    let triggerSaveTimer = null;
+    let commandsSaveTimer = null;
+    /** 即时应对条目折叠态（按 id；新条目默认展开） */
+    const instantExpanded = new Set();
+    /** 指令条目折叠态（按 id；默认折叠，新增展开） */
+    const commandExpanded = new Set();
+    const GUARD_LEVEL_NAMES = { 1: '总督', 2: '提督', 3: '舰长' };
+    const ABILITY_GROUP_NAMES = { jukebox: '点歌机', live2d: 'Live2D' };
+    const INSTANT_ACTION_LABELS = { 'llm': '调用llm', 'send-text': '发送文本', 'run-ability': '调用工具' };
 
-      const render = (items) => {
-        root.innerHTML = '';
-        // 全部展开 / 全部折叠
-        const bar = document.createElement('div');
-        bar.style.cssText = 'display:flex; gap:8px; margin-bottom:8px;';
-        const expandAll = document.createElement('button');
-        expandAll.className = 'tac-btn tac-btn-sm';
-        expandAll.type = 'button';
-        expandAll.textContent = vtuberI18n.t('cfg.triggerExpandAll');
-        expandAll.onclick = () => { items.forEach((r) => triggerExpanded.add(r.id)); render(items); };
-        const collapseAll = document.createElement('button');
-        collapseAll.className = 'tac-btn tac-btn-sm';
-        collapseAll.type = 'button';
-        collapseAll.textContent = vtuberI18n.t('cfg.triggerCollapseAll');
-        collapseAll.onclick = () => { triggerExpanded.clear(); render(items); };
-        bar.appendChild(expandAll);
-        bar.appendChild(collapseAll);
-        root.appendChild(bar);
-        items.forEach((rule, idx) => root.appendChild(renderTriggerCard(rule, idx, items, render)));
-
-        const addBtn = document.createElement('button');
-        addBtn.className = 'tac-btn tac-btn-sm tac-btn-primary';
-        addBtn.type = 'button';
-        addBtn.style.alignSelf = 'flex-start';
-        addBtn.textContent = vtuberI18n.t('cfg.addTrigger');
-        addBtn.onclick = () => {
-          const fresh = {
-            id: 'rule-' + Date.now(),
-            name: '新规则 (New Rule)',
-            enabled: true,
-            mode: 'immediate',
-            eventTypes: ['danmaku'],
-            delayMs: 0,
-            maxBatch: 1,
-            mergeEvents: [],
-            cron: '',
-            actions: [{ type: 'llm-request' }],
-          };
-          items.push(fresh);
-          triggerExpanded.add(fresh.id);
-          render(items);
-        };
-        root.appendChild(addBtn);
-        root._items = items;
-      };
-
-      render(Array.isArray(list) ? JSON.parse(JSON.stringify(list)) : []);
-      return root;
+    async function ensureTriggerPaneData() {
+      const jobs = []
+      if (!TRIGGER_CATALOG.length) jobs.push(vtuberRPC.call('behavior.catalog', {}).then((r) => { TRIGGER_CATALOG = (r && r.catalog) || [] }).catch(() => { TRIGGER_CATALOG = [] }))
+      if (!INSTANT_SCHEMA) jobs.push(vtuberRPC.call('instant.schema', {}).then((r) => { INSTANT_SCHEMA = r }).catch(() => { INSTANT_SCHEMA = { conditions: {}, variables: {} } }))
+      if (!ABILITIES.length) jobs.push(vtuberRPC.call('abilities.list', {}).then((r) => { ABILITIES = (r && r.abilities) || [] }).catch(() => { ABILITIES = [] }))
+      if (!activeConfig) jobs.push(vtuberRPC.call('config.get', {}).then((c) => { activeConfig = c }).catch(() => {}))
+      await Promise.all(jobs)
     }
 
-    function renderTriggerCard(rule, idx, items, render) {
-      const expanded = triggerExpanded.has(rule.id);
-      const card = document.createElement('div');
-      card.className = 'trigger-rule-card' + (rule.enabled ? '' : ' disabled') + (expanded ? ' expanded' : '');
-      const modeLabel = (TRIGGER_MODES_LIST.find((m) => m.value === rule.mode) || {}).label || rule.mode;
+    function catalogLabelOf(key) {
+      const entry = TRIGGER_CATALOG.find((e) => e.key === key)
+      return entry ? entry.label : key
+    }
 
+    /** 触发器/指令面板内的标准卡片（风格与点歌机中台/音频中枢一致；卡片间距由页面容器 gap 提供） */
+    function tacticalCard(icon, title, opts) {
+      opts = opts || {}
+      const card = document.createElement('div')
+      card.className = 'tactical-panel hud-corner-brackets'
+      const header = document.createElement('div')
+      header.className = 'section-header'
+      const left = document.createElement('span')
+      left.className = 'section-title'
+      left.innerHTML = `<svg style="width:14px;height:14px;fill:currentColor;"><use href="#${icon}"/></svg><span>${title}</span>`
+      header.appendChild(left)
+      const right = document.createElement('div')
+      right.style.cssText = 'display:flex; gap:8px; align-items:center;'
+      if (opts.badge) {
+        const badge = document.createElement('span')
+        badge.className = 'section-title-badge'
+        badge.textContent = opts.badge
+        right.appendChild(badge)
+      }
+      if (opts.right) right.appendChild(opts.right)
+      header.appendChild(right)
+      card.appendChild(header)
+      const body = document.createElement('div')
+      body.style.cssText = 'padding:16px; display:flex; flex-direction:column; gap:14px;'
+      card.appendChild(body)
+      return { card, body }
+    }
+
+    /** cc-card 式可折叠条目（参照旧点歌指令配置的渠道卡） */
+    function collapsibleCard() {
+      const box = document.createElement('div')
+      box.className = 'cc-card'
+      box.style.cssText = 'border:1px solid var(--th-border-subtle); border-radius:2px; padding:8px 10px;'
+      const head = document.createElement('div')
+      head.style.cssText = 'display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;'
+      const arrow = document.createElement('span')
+      arrow.style.cssText = 'font-size:10px; color:var(--th-text-muted); width:12px; flex-shrink:0;'
+      arrow.textContent = '▶'
+      head.appendChild(arrow)
+      const body = document.createElement('div')
+      body.style.cssText = 'margin-top:6px; display:none;'
+      const setOpen = (open) => {
+        arrow.textContent = open ? '▼' : '▶'
+        body.style.display = open ? '' : 'none'
+      }
+      head.addEventListener('click', (e) => {
+        if (e.target.closest('button, input, label, select, .compact-switch')) return
+        setOpen(body.style.display === 'none')
+      })
+      box.appendChild(head)
+      box.appendChild(body)
+      return { box, head, body, arrow, setOpen }
+    }
+
+    /** 条目级启用小开关（头部胶囊） */
+    function smallToggle(checked, text) {
+      const label = document.createElement('label')
+      label.className = 'tac-toggle-btn tac-toggle-btn-xs' + (checked ? ' active tac-toggle-btn-success' : '')
+      label.style.cursor = 'pointer'
+      label.innerHTML = `<input type="checkbox" hidden ${checked ? 'checked' : ''}><span class="tac-dot"></span><span>${text}</span>`
+      return label
+    }
+
+    /** 就地更新 toggle-row 行的开关视觉（不重绘整页，避免视口滚动位置丢失） */
+    function refreshToggleRowVisual(row, on) {
+      const status = row.querySelector('.toggle-row-status')
+      if (status) {
+        status.className = `toggle-row-status ${on ? 'active' : 'inactive'}`
+        status.textContent = on ? '[ ENABLED ]' : '[ DISABLED ]'
+      }
+      const led = row.querySelector('.toggle-row-led')
+      if (led) led.className = `toggle-row-led ${on ? 'active' : 'inactive'}`
+    }
+
+    /** 紧凑版 toggle-row 开关：模仿「即时应对」总开关（status + LED），半宽密集排列；
+     *  状态由 class "on" 表达（收集逻辑与原 out-switch 相同）；data-pane 区分自动保存归属 */
+    function compactSwitch(label, on, dataset) {
+      const row = document.createElement('div')
+      row.className = 'compact-switch' + (on ? ' on' : '')
+      row.style.cssText = 'flex:0 0 calc(50% - 3px); display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--th-border-subtle); border-radius:2px; cursor:pointer; background:var(--th-bg-elevated); user-select:none;'
+      const title = document.createElement('span')
+      title.style.cssText = 'font-size:11px; font-weight:700; color:var(--th-text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;'
+      title.title = label
+      title.textContent = label
+      const status = document.createElement('span')
+      status.className = `toggle-row-status ${on ? 'active' : 'inactive'}`
+      status.textContent = on ? '[ ENABLED ]' : '[ DISABLED ]'
+      const led = document.createElement('div')
+      led.className = `toggle-row-led ${on ? 'active' : 'inactive'}`
+      row.appendChild(title)
+      row.appendChild(status)
+      row.appendChild(led)
+      for (const [k, v] of Object.entries(dataset || {})) row.dataset[k] = v
+      row.onclick = () => {
+        const next = !row.classList.contains('on')
+        row.classList.toggle('on', next)
+        status.className = `toggle-row-status ${next ? 'active' : 'inactive'}`
+        status.textContent = next ? '[ ENABLED ]' : '[ DISABLED ]'
+        led.className = `toggle-row-led ${next ? 'active' : 'inactive'}`
+        if (row.dataset.pane === 'cmd') scheduleCommandsSave()
+        else scheduleTriggerSave()
+      }
+      return row
+    }
+
+    function miniDangerBtn(title) {
+      const btn = document.createElement('button')
+      btn.className = 'tac-btn tac-btn-sm tac-btn-danger'
+      btn.type = 'button'
+      btn.style.cssText = 'padding:2px 8px; flex-shrink:0;'
+      btn.textContent = '✕'
+      if (title) btn.title = title
+      return btn
+    }
+
+    function renderTriggerPane() {
+      const host = document.getElementById('triggerPaneBody')
+      if (!host || !activeConfig) return
+      // 整页重建会让滚动容器塌陷归零：保存视口位置，重建后恢复
+      const viewport = host.closest('.workspace-viewport')
+      const savedScrollTop = viewport ? viewport.scrollTop : 0
+      const events = activeConfig.events = activeConfig.events || { enabled: true, enabledEvents: {}, filters: {} }
+      const behavior = activeConfig.behavior = activeConfig.behavior || { feed: { include: {}, maxEvents: 30 }, merge: {} }
+      const instant = activeConfig.instant = activeConfig.instant || { enabled: true, items: [] }
+      events.enabledEvents = events.enabledEvents || {}
+      events.filters = events.filters || {}
+      behavior.feed = behavior.feed || { include: {}, maxEvents: 30 }
+      behavior.merge = behavior.merge || {}
+      instant.items = Array.isArray(instant.items) ? instant.items : []
+      host.innerHTML = ''
+
+      // ── 卡 1：事件接收 ──
+      const c1 = tacticalCard('icon-radar', '事件接收 <span style="font-weight:400; font-size:10px; color:var(--th-text-muted);">EVENT RECEPTION</span>', { badge: 'INGEST' })
+      const receiveTypes = TRIGGER_CATALOG.filter((e) => e.group === 'live')
+      const recvChips = document.createElement('div')
+      recvChips.innerHTML = `<label class="param-slider-label">接收的事件类型</label>
+        <div class="trigger-chip-group">${receiveTypes.map((t) => `
+          <label class="trigger-chip" title="${escapeHtml(t.description || '')}">
+            <input type="checkbox" data-recv="${t.key}" hidden ${events.enabledEvents[t.key] ? 'checked' : ''}>
+            <span class="tac-dot"></span><span>${t.label}</span></label>`).join('')}
+        </div>`
+      c1.body.appendChild(recvChips)
+      const filterGrid = document.createElement('div')
+      filterGrid.style.cssText = 'display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px;'
+      filterGrid.innerHTML = `
+        <div class="cfg-field"><label class="cfg-field-label" title="低于该价格（金瓜子）的礼物不进入系统">礼物门槛（金瓜子）</label>
+          <input class="tac-input" type="number" id="tgMinGiftPrice" value="${Number(events.filters.minGiftPrice ?? 0)}"></div>
+        <div class="cfg-field"><label class="cfg-field-label" title="低于该金额（元）的SC不进入系统">SC 门槛（元）</label>
+          <input class="tac-input" type="number" id="tgMinScAmount" value="${Number(events.filters.minSuperchatAmount ?? 0)}"></div>`
+      c1.body.appendChild(filterGrid)
+      host.appendChild(c1.card)
+
+      // ── 卡 2：事件清单 · EVENT 变量 ──
+      const c2 = tacticalCard('icon-pulse', '事件清单 · EVENT 变量 <span style="font-weight:400; font-size:10px; color:var(--th-text-muted);">EVENT FEED</span>', { badge: 'MODEL CONTEXT' })
+      const lenGrid = document.createElement('div')
+      lenGrid.style.cssText = 'display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px;'
+      lenGrid.innerHTML = `
+        <div class="cfg-field"><label class="cfg-field-label" title="清单最多呈现条数">清单长度上限</label>
+          <input class="tac-input" type="number" id="tgMaxEvents" value="${Number(behavior.feed.maxEvents ?? 30)}"></div>`
+      c2.body.appendChild(lenGrid)
+      for (const [groupName, title] of [['live', '直播间事件'], ['system', '系统后台事件']]) {
+        const entries = TRIGGER_CATALOG.filter((e) => e.group === groupName)
+        if (!entries.length) continue
+        const box = document.createElement('div')
+        box.innerHTML = `<label class="param-slider-label">${title}</label>`
+        const chipGroup = document.createElement('div')
+        chipGroup.className = 'trigger-chip-group'
+        for (const entry of entries) {
+          const on = Object.prototype.hasOwnProperty.call(behavior.feed.include, entry.key)
+            ? behavior.feed.include[entry.key] !== false
+            : entry.defaultInclude !== false
+          const label = document.createElement('label')
+          label.className = 'trigger-chip'
+          label.title = entry.description || ''
+          label.innerHTML = `<input type="checkbox" data-inc="${entry.key}" hidden ${on ? 'checked' : ''}><span class="tac-dot"></span><span>${entry.label}</span>`
+          chipGroup.appendChild(label)
+        }
+        box.appendChild(chipGroup)
+        c2.body.appendChild(box)
+      }
+      const previewBox = document.createElement('div')
+      previewBox.className = 'tactical-panel-elevated'
+      previewBox.style.cssText = 'padding:12px; display:flex; flex-direction:column; gap:6px;'
+      previewBox.innerHTML = `
+        <span class="param-slider-label" style="margin:0;">event事件内容示例</span>
+        <pre id="tgPreviewBox" style="min-height:140px; max-height:260px; overflow:auto; white-space:pre-wrap; font-family:var(--font-mono); font-size:11px; margin:0; color:var(--th-text-secondary);"></pre>`
+      c2.body.appendChild(previewBox)
+      host.appendChild(c2.card)
+
+      // ── 卡 3：合并策略 ──
+      const c3 = tacticalCard('icon-sliders', '合并策略 <span style="font-weight:400; font-size:10px; color:var(--th-text-muted);">MERGE POLICY</span>', { badge: 'ADAPTIVE' })
+      const mergeRow = document.createElement('div')
+      mergeRow.className = 'toggle-row'
+      mergeRow.style.cursor = 'pointer'
+      mergeRow.innerHTML = `
+        <div class="toggle-row-left">
+          <div class="toggle-row-title">根据事件密度合并请求</div>
+        </div>
+        <div class="toggle-row-right">
+          <span class="toggle-row-status ${behavior.merge.enabled !== false ? 'active' : 'inactive'}">${behavior.merge.enabled !== false ? '[ ENABLED ]' : '[ DISABLED ]'}</span>
+          <div class="toggle-row-led ${behavior.merge.enabled !== false ? 'active' : 'inactive'}"></div>
+        </div>`
+      mergeRow.onclick = () => {
+        collectTriggerPane()
+        behavior.merge.enabled = behavior.merge.enabled === false
+        refreshToggleRowVisual(mergeRow, behavior.merge.enabled !== false)
+        void persistTriggerPane()
+      }
+      c3.body.appendChild(mergeRow)
+      const MERGE_FIELDS = [
+        { key: 'quietWindowMs', label: '静默窗口 (ms)', hint: '这么多毫秒没有新事件就把攒下的一批交给模型' },
+        { key: 'maxWaitMs', label: '最大等待 (ms)', hint: '聊天火热时最多等这么久必定触发；0=不限' },
+        { key: 'densityWindowSec', label: '密度统计窗口 (秒)', hint: '统计"多少秒内来了多少条"的窗口' },
+        { key: 'densityThreshold', label: '密度阈值 (条)', hint: '窗口内达到该条数立即触发（刷屏时不干等）；0=关闭' },
+        { key: 'maxBatch', label: '单批上限 (条)', hint: '一批最多合并多少条；0=不限' },
+      ]
+      const mergeGrid = document.createElement('div')
+      mergeGrid.style.cssText = 'display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px;'
+      mergeGrid.innerHTML = MERGE_FIELDS.map((f) => `
+        <div class="cfg-field"><label class="cfg-field-label" title="${f.hint}">${f.label} ⓘ</label>
+          <input class="tac-input" type="number" data-merge="${f.key}" value="${Number(behavior.merge[f.key] ?? 0)}"></div>`).join('')
+      c3.body.appendChild(mergeGrid)
+      const mergeHint = document.createElement('div')
+      mergeHint.style.cssText = 'font-size:11px; color:var(--th-text-muted);'
+      mergeHint.textContent = '三条触发路径：静默到期（默认）· 密度达标（刷屏）· 最大等待封顶（热闹时段）'
+      c3.body.appendChild(mergeHint)
+      host.appendChild(c3.card)
+
+      // ── 卡 4：即时应对 ──
+      const headRight = document.createElement('div')
+      headRight.style.cssText = 'display:flex; gap:8px; align-items:center;'
+      const addBtn = document.createElement('button')
+      addBtn.className = 'tac-btn tac-btn-sm tac-btn-primary btn-lamp'
+      addBtn.type = 'button'
+      addBtn.textContent = '新增'
+      addBtn.onclick = () => { addInstantItem(instant) }
+      headRight.appendChild(addBtn)
+      const c4 = tacticalCard('icon-bolt', '即时应对 <span style="font-weight:400; font-size:10px; color:var(--th-text-muted);">INSTANT RESPONSES</span>', { badge: 'DIRECT', right: headRight })
+      // 总开关：卡片内容区顶部的 toggle-row（与「根据事件密度合并请求」同款）
+      const instantRow = document.createElement('div')
+      instantRow.className = 'toggle-row'
+      instantRow.style.cursor = 'pointer'
+      instantRow.innerHTML = `
+        <div class="toggle-row-left">
+          <div class="toggle-row-title">即时应对</div>
+        </div>
+        <div class="toggle-row-right">
+          <span class="toggle-row-status ${instant.enabled !== false ? 'active' : 'inactive'}">${instant.enabled !== false ? '[ ENABLED ]' : '[ DISABLED ]'}</span>
+          <div class="toggle-row-led ${instant.enabled !== false ? 'active' : 'inactive'}"></div>
+        </div>`
+      instantRow.onclick = () => {
+        collectTriggerPane()
+        instant.enabled = instant.enabled === false
+        refreshToggleRowVisual(instantRow, instant.enabled !== false)
+        void persistTriggerPane()
+      }
+      c4.body.appendChild(instantRow)
+      const itemsHost = document.createElement('div')
+      itemsHost.style.cssText = 'display:flex; flex-direction:column; gap:8px;'
+      itemsHost.dataset.instantItems = ''
+      if (!instant.items.length) {
+        const empty = document.createElement('div')
+        empty.style.cssText = 'font-size:12px; color:var(--th-text-muted);'
+        empty.dataset.empty = ''
+        empty.textContent = '暂无即时应对规则。可配置如：观众进入直播间 → 发送文本欢迎；大额 SC → 调用llm插队回应。'
+        itemsHost.appendChild(empty)
+      }
+      instant.items.forEach((item, idx) => itemsHost.appendChild(renderInstantRuleCard(item, idx, instant.items)))
+      c4.body.appendChild(itemsHost)
+      host.appendChild(c4.card)
+
+      // 自动保存 + 预览联动
+      host.onchange = (e) => {
+        if (e.target && e.target.matches('input, select')) {
+          scheduleTriggerSave()
+          if (e.target.matches('[data-inc]') || e.target.matches('#tgMaxEvents')) scheduleTriggerPreview()
+        }
+      }
+      if (viewport) viewport.scrollTop = savedScrollTop
+      void refreshTriggerPreview()
+    }
+
+    /** 新增即时应对：仅追加新卡，不扰动其他条目的折叠态与输入 */
+    function addInstantItem(instant) {
+      collectTriggerPane()
+      const itemsHost = document.querySelector('[data-instant-items]')
+      if (!itemsHost) return
+      const empty = itemsHost.querySelector('[data-empty]')
+      if (empty) empty.remove()
+      const fresh = {
+        id: 'inst-' + Date.now(), name: '新规则', enabled: true,
+        eventType: 'danmaku', condition: {},
+        action: { type: 'send-text', template: '', channels: ['danmaku'] },
+        cooldownMs: 0, announceToFeed: true,
+      }
+      instant.items.push(fresh)
+      instantExpanded.add(fresh.id)
+      itemsHost.appendChild(renderInstantRuleCard(fresh, instant.items.length - 1, instant.items))
+      scheduleTriggerSave()
+    }
+
+    // ── 清单预览（纯示例，随勾选实时刷新） ──
+
+    function collectPreviewConfig() {
+      const host = document.getElementById('triggerPaneBody')
+      if (!host) return {}
+      const include = {}
+      host.querySelectorAll('[data-inc]').forEach((el) => { include[el.dataset.inc] = el.checked })
+      const maxEvents = Number(host.querySelector('#tgMaxEvents')?.value) || 0
+      return { include, maxEvents }
+    }
+
+    function scheduleTriggerPreview() {
+      if (triggerPreviewTimer) clearTimeout(triggerPreviewTimer)
+      triggerPreviewTimer = setTimeout(() => { void refreshTriggerPreview() }, 400)
+    }
+
+    async function refreshTriggerPreview() {
+      triggerPreviewTimer = null
+      const box = document.getElementById('tgPreviewBox')
+      if (!box) return
+      const { include, maxEvents } = collectPreviewConfig()
+      try {
+        const res = await vtuberRPC.call('feed.preview', { include, maxEvents })
+        box.textContent = (res.lines || []).join('\n') || '（未开启任何事件类型）'
+      } catch (e) {
+        box.textContent = '预览失败: ' + (e.message || e)
+      }
+    }
+
+    // ── 自动保存（收集 → 去抖落盘） ──
+
+    function scheduleTriggerSave() {
+      if (triggerSaveTimer) clearTimeout(triggerSaveTimer)
+      triggerSaveTimer = setTimeout(() => { void persistTriggerPane() }, 500)
+    }
+
+    /** 从 DOM 收集触发器面板全部配置到 activeConfig（纯收集，不发包） */
+    function collectTriggerPane() {
+      const host = document.getElementById('triggerPaneBody')
+      if (!host || !activeConfig) return
+      const events = activeConfig.events
+      const behavior = activeConfig.behavior
+      const instant = activeConfig.instant
+      host.querySelectorAll('[data-recv]').forEach((el) => { events.enabledEvents[el.dataset.recv] = el.checked })
+      events.filters.minGiftPrice = Number(host.querySelector('#tgMinGiftPrice')?.value) || 0
+      events.filters.minSuperchatAmount = Number(host.querySelector('#tgMinScAmount')?.value) || 0
+      host.querySelectorAll('[data-inc]').forEach((el) => { behavior.feed.include[el.dataset.inc] = el.checked })
+      behavior.feed.maxEvents = Number(host.querySelector('#tgMaxEvents')?.value) || 30
+      host.querySelectorAll('[data-merge]').forEach((el) => { behavior.merge[el.dataset.merge] = Number(el.value) || 0 })
+      host.querySelectorAll('[data-instant-items] .cc-card').forEach((card) => {
+        const item = card._item
+        if (!item) return
+        const nameEl = card.querySelector('[data-ik="name"]')
+        if (!nameEl) return
+        item.name = nameEl.value.trim() || '未命名规则'
+        item.eventType = card.querySelector('[data-ik="eventType"]').value
+        item.enabled = card.querySelector('[data-ik="enabled"]').checked
+        item.cooldownMs = Number(card.querySelector('[data-ik="cooldownMs"]').value) || 0
+        const announce = card.querySelector('[data-ik="announceToFeed"]')
+        item.announceToFeed = announce ? announce.classList.contains('on') : true
+        const cond = {}
+        const byKey = {}
+        card.querySelectorAll('[data-cond] [data-ck]').forEach((el) => {
+          const key = el.dataset.ck
+          if (el.classList.contains('compact-switch')) {
+            cond[key] = el.classList.contains('on')
+            return
+          }
+          const kind = el.dataset.kind
+          if (kind === 'number') { const n = Number(el.value); if (n > 0) cond[key] = n; return }
+          const v = el.value.trim()
+          if (!v) return
+          if (kind === 'stringList') (byKey[key] = byKey[key] || []).push(...v.split(/[,，\s]+/).filter(Boolean))
+          else (byKey[key] = byKey[key] || []).push(v)
+        })
+        for (const key of Object.keys(byKey)) cond[key] = byKey[key]
+        const guards = [...card.querySelectorAll('[data-ck-guardLevels]')].filter((el) => el.checked).map((el) => Number(el.dataset.ckGuardLevels))
+        if (guards.length) cond.guardLevels = guards
+        item.condition = cond
+        const type = card.querySelector('[data-ik="actionType"]').value
+        if (type === 'llm') {
+          item.action = { type: 'llm', directive: card.querySelector('[data-ak="directive"]')?.value ?? '' }
+        } else if (type === 'run-ability') {
+          const args = {}
+          card.querySelectorAll('[data-argk]').forEach((el) => {
+            if (el.classList.contains('compact-switch')) { args[el.dataset.argk] = el.classList.contains('on') }
+            else { const v = el.value.trim(); if (v !== '') args[el.dataset.argk] = v }
+          })
+          item.action = { type: 'run-ability', ability: card.querySelector('[data-ak="ability"]').value, args }
+        } else {
+          const channels = [...card.querySelectorAll('[data-ch]')].filter((el) => el.classList.contains('on')).map((el) => el.dataset.ch)
+          item.action = { type: 'send-text', template: card.querySelector('[data-ak="template"]')?.value ?? '', channels: channels.length ? channels : ['danmaku'] }
+        }
+      })
+    }
+
+    async function persistTriggerPane() {
+      triggerSaveTimer = null
+      if (!activeConfig) return
+      collectTriggerPane()
+      try {
+        const latest = await vtuberRPC.call('config.updatePaths', {
+          entries: [
+            { path: 'events.enabledEvents', value: activeConfig.events.enabledEvents },
+            { path: 'events.filters', value: activeConfig.events.filters },
+            { path: 'behavior', value: activeConfig.behavior },
+            { path: 'instant', value: activeConfig.instant },
+          ],
+        })
+        if (latest && typeof latest === 'object') activeConfig = latest
+      } catch (e) {
+        showTacticalToast('自动保存失败: ' + (e.message || e), 'err')
+      }
+    }
+
+    /** 即时应对条目：cc-card 独立折叠；条件为按钮新增（可多个同类，OR 生效） */
+    function renderInstantRuleCard(item, idx, items) {
+      const { box, head, body, setOpen } = collapsibleCard()
+      box._item = item
+      const actionType = item.action?.type || 'send-text'
+      head.insertAdjacentHTML('beforeend', `
+        <strong style="font-size:12px; font-weight:700; color:var(--th-accent); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.name || item.id)}</strong>
+        <span class="tac-badge tac-badge-accent" style="padding:0 5px;">${escapeHtml(catalogLabelOf(item.eventType))}</span>
+        <span class="tac-badge" style="padding:0 5px;">${INSTANT_ACTION_LABELS[actionType] || actionType}</span>
+        <span style="flex:1;"></span>`)
+      const enableToggle = smallToggle(item.enabled !== false, item.enabled !== false ? '启用' : '停用')
+      enableToggle.querySelector('input').dataset.ik = 'enabled'
+      enableToggle.querySelector('input').onchange = () => {
+        // 开关视觉自身更新，无需整页重绘（保持视口位置）
+        collectTriggerPane()
+        scheduleTriggerSave()
+      }
+      head.appendChild(enableToggle)
+      const upBtn = document.createElement('button')
+      upBtn.className = 'tac-btn tac-btn-sm'
+      upBtn.type = 'button'
+      upBtn.textContent = '▲'
+      upBtn.onclick = () => { if (idx > 0) { collectTriggerPane(); items.splice(idx - 1, 0, items.splice(idx, 1)[0]); renderTriggerPane(); scheduleTriggerSave() } }
+      head.appendChild(upBtn)
+      const delBtn = miniDangerBtn('删除规则')
+      delBtn.onclick = () => { collectTriggerPane(); items.splice(idx, 1); renderTriggerPane(); scheduleTriggerSave() }
+      head.appendChild(delBtn)
+      setOpen(instantExpanded.has(item.id))
+      head.addEventListener('click', (e) => {
+        if (e.target.closest('button, input, label, select, .compact-switch')) return
+        if (body.style.display === 'none') instantExpanded.add(item.id)
+        else instantExpanded.delete(item.id)
+      })
+
+      body.innerHTML = `
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:10px;">
+          <div class="cfg-field"><label class="cfg-field-label">规则名称</label>
+            <input class="tac-input" data-ik="name" value="${escapeHtml(item.name || '')}"></div>
+          <div class="cfg-field"><label class="cfg-field-label">触发事件类型</label>
+            <select class="tac-select" data-ik="eventType">${TRIGGER_CATALOG.map((t) =>
+              `<option value="${t.key}" ${item.eventType === t.key ? 'selected' : ''}>${t.label} (${t.key})</option>`).join('')}</select></div>
+          <div class="cfg-field"><label class="cfg-field-label">应对方式</label>
+            <select class="tac-select" data-ik="actionType">
+              <option value="send-text" ${actionType === 'send-text' ? 'selected' : ''}>发送文本</option>
+              <option value="llm" ${actionType === 'llm' ? 'selected' : ''}>调用llm</option>
+              <option value="run-ability" ${actionType === 'run-ability' ? 'selected' : ''}>调用工具</option>
+            </select></div>
+          <div class="cfg-field"><label class="cfg-field-label">规则冷却 (ms)</label>
+            <input class="tac-input" type="number" data-ik="cooldownMs" value="${Number(item.cooldownMs ?? 0)}"></div>
+        </div>
+        <div style="margin-top:10px;">
+          <label class="param-slider-label">条件</label>
+          <div data-cond style="display:flex; flex-direction:column; gap:6px; margin-top:6px;"></div>
+        </div>
+        <div style="margin-top:10px;" data-actioncfg></div>
+        <label class="param-slider-label" data-switches-label style="display:none; margin-top:10px;">回复渠道</label>
+        <div data-switches style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;"></div>`
+
+      const condHost = body.querySelector('[data-cond]')
+      const drawConditions = () => {
+        condHost.innerHTML = ''
+        const fields = (INSTANT_SCHEMA?.conditions?.[item.eventType]?.fields) || []
+        const cond = item.condition = item.condition || {}
+        let hasAny = false
+        for (const f of fields) {
+          const value = cond[f.key]
+          if (value === undefined || value === null || value === '' || (Array.isArray(value) && !value.length)) continue
+          if (f.kind === 'guardLevels') {
+            condHost.appendChild(makeGuardRow(f, item))
+            hasAny = true
+            continue
+          }
+          if (f.kind === 'boolean') {
+            if (value === true || value === false) condHost.appendChild(makeBooleanRow(f, item))
+            hasAny = true
+            continue
+          }
+          const values = Array.isArray(value) ? value : [value]
+          for (const v of values) {
+            condHost.appendChild(makeConditionRow(f, item, String(v)))
+            hasAny = true
+          }
+        }
+        // + 新增条件（按钮 + 内联下拉）
+        const addRow = document.createElement('div')
+        addRow.style.cssText = 'display:flex; gap:6px; align-items:center;'
+        const addCondBtn = document.createElement('button')
+        addCondBtn.className = 'tac-btn tac-btn-sm'
+        addCondBtn.type = 'button'
+        addCondBtn.textContent = '+ 新增条件'
+        const condSelect = document.createElement('select')
+        condSelect.className = 'tac-select'
+        condSelect.style.cssText = 'flex:0 1 260px; display:none;'
+        addCondBtn.onclick = () => {
+          const fields2 = (INSTANT_SCHEMA?.conditions?.[item.eventType]?.fields) || []
+          condSelect.innerHTML = '<option value="">选择条件…</option>' + fields2.map((f) => {
+            const exists = item.condition?.[f.key] !== undefined && item.condition?.[f.key] !== '' &&
+              !(Array.isArray(item.condition?.[f.key]) && !item.condition[f.key].length)
+            const unique = f.kind === 'number' || f.kind === 'boolean' || f.kind === 'guardLevels'
+            const disabled = unique && exists ? 'disabled' : ''
+            return `<option value="${f.key}" ${disabled}>${f.label}${unique ? '' : '（可多个，任一命中）'}</option>`
+          }).join('')
+          condSelect.style.display = ''
+          condSelect.value = ''
+        }
+        condSelect.onchange = () => {
+          const key = condSelect.value
+          if (!key) return
+          const f = (INSTANT_SCHEMA?.conditions?.[item.eventType]?.fields || []).find((x) => x.key === key)
+          if (!f) return
+          item.condition = item.condition || {}
+          if (f.kind === 'boolean') {
+            item.condition[key] = true
+          } else if (f.kind === 'guardLevels') {
+            item.condition[key] = []
+          } else if (f.kind === 'number') {
+            item.condition[key] = 0
+          } else {
+            const cur = item.condition[key]
+            const arr = Array.isArray(cur) ? cur : (cur !== undefined && cur !== '' ? [cur] : [])
+            arr.push('')
+            item.condition[key] = arr
+          }
+          condSelect.style.display = 'none'
+          drawConditions()
+          scheduleTriggerSave()
+        }
+        addRow.appendChild(addCondBtn)
+        addRow.appendChild(condSelect)
+        condHost.appendChild(addRow)
+      }
+
+      const actionHost = body.querySelector('[data-actioncfg]')
+      const drawAction = () => {
+        const type = item.action?.type || 'send-text'
+        if (!item.action || item.action.type !== type) {
+          item.action = type === 'llm'
+            ? { type: 'llm' }
+            : type === 'run-ability' ? { type: 'run-ability', ability: ABILITIES[0]?.id ?? '', args: {} }
+            : { type: 'send-text', template: '', channels: ['danmaku'] }
+        }
+        actionHost.innerHTML = ''
+        if (type === 'llm') {
+          actionHost.innerHTML = `
+            <div class="cfg-field"><label class="cfg-field-label" title="空 = 模型自行判断如何回应">定向指令（可选）</label>
+              <input class="tac-input" data-ak="directive" value="${escapeHtml(item.action.directive ?? '')}" placeholder="如：收到了大额 SC，请优先真诚致谢"></div>`
+        } else if (type === 'run-ability') {
+          const abilitySel = document.createElement('div')
+          abilitySel.className = 'cfg-field'
+          abilitySel.innerHTML = `<label class="cfg-field-label">调用工具</label>
+            <select class="tac-select" data-ak="ability">${ABILITIES.map((a) =>
+              `<option value="${a.id}" ${item.action.ability === a.id ? 'selected' : ''}>[${ABILITY_GROUP_NAMES[a.group]}] ${a.name}</option>`).join('')}</select>`
+          actionHost.appendChild(abilitySel)
+          const argsHost = document.createElement('div')
+          argsHost.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;'
+          actionHost.appendChild(argsHost)
+          const drawArgs = () => {
+            argsHost.innerHTML = ''
+            const ability = ABILITIES.find((a) => a.id === item.action.ability)
+            if (!ability || !ability.params?.length) return
+            item.action.args = item.action.args || {}
+            for (const p of ability.params) {
+              if (p.kind === 'boolean') {
+                argsHost.appendChild(compactSwitch(p.label, item.action.args[p.key] !== false, { argk: p.key }))
+              } else {
+                const wrap = document.createElement('div')
+                wrap.className = 'cfg-field'
+                wrap.style.flex = '1 1 100%'
+                if (p.kind === 'select') {
+                  wrap.innerHTML = `<label class="cfg-field-label" title="${escapeHtml(p.description || '')}">${p.label}</label>
+                    <select class="tac-select" data-argk="${p.key}">
+                      <option value="">（不指定）</option>
+                      ${(p.options || []).map((o) => `<option value="${o}" ${item.action.args[p.key] === o ? 'selected' : ''}>${o}</option>`).join('')}
+                    </select>`
+                } else {
+                  wrap.innerHTML = `<label class="cfg-field-label" title="${escapeHtml(p.description || '')}">${p.label}</label>
+                    <input class="tac-input" data-argk="${p.key}" value="${escapeHtml(String(item.action.args[p.key] ?? ''))}">`
+                }
+                argsHost.appendChild(wrap)
+              }
+            }
+          }
+          abilitySel.querySelector('select').onchange = (e) => {
+            collectTriggerPane()
+            item.action.ability = e.target.value
+            item.action.args = {}
+            drawArgs()
+            scheduleTriggerSave()
+          }
+          drawArgs()
+        } else {
+          // send-text
+          actionHost.innerHTML = `
+            <div class="cfg-field">
+              <label class="cfg-field-label">回复模板</label>
+              <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px;">
+                ${varDocsFor(item.eventType).map((v) =>
+                  `<button class="tac-btn tac-btn-sm" type="button" data-var="${v.token}" title="${escapeHtml(v.desc)}" style="padding:0 6px; font-size:10px;">${v.token}</button>`).join('')}
+              </div>
+              <textarea class="tac-textarea" data-ak="template" rows="2" style="font-size:12px;">${escapeHtml(item.action.template ?? '')}</textarea>
+            </div>`
+          actionHost.querySelectorAll('[data-var]').forEach((btn) => {
+            btn.onclick = () => {
+              const ta = actionHost.querySelector('[data-ak="template"]')
+              const pos = ta.selectionStart ?? ta.value.length
+              ta.value = ta.value.slice(0, pos) + btn.dataset.var + ta.value.slice(pos)
+              ta.focus()
+            }
+          })
+        }
+        drawSwitches()
+      }
+      // 开关组（半宽密集两列）：send-text 时含 弹幕/展示板/TTS 三通道 + 写入清单
+      const switchesHost = body.querySelector('[data-switches]')
+      const switchesLabel = body.querySelector('[data-switches-label]')
+      const chNames = { danmaku: '弹幕', display: '展示板', tts: 'TTS 语音' }
+      const drawSwitches = () => {
+        switchesHost.innerHTML = ''
+        const isSendText = (item.action?.type || 'send-text') === 'send-text'
+        if (switchesLabel) switchesLabel.style.display = isSendText ? '' : 'none'
+        if (isSendText) {
+          for (const ch of ['danmaku', 'display', 'tts']) {
+            switchesHost.appendChild(compactSwitch(`${chNames[ch]}（${ch}）`, (item.action.channels || []).includes(ch), { ch }))
+          }
+        }
+        switchesHost.appendChild(compactSwitch('执行动作写入模型可见清单', item.announceToFeed !== false, { ik: 'announceToFeed' }))
+      }
+      drawConditions()
+      drawAction()
+
+      body.querySelector('[data-ik="eventType"]').onchange = (e) => {
+        collectTriggerPane()
+        item.eventType = e.target.value
+        item.condition = {}
+        drawConditions()
+        drawAction()
+        scheduleTriggerSave()
+      }
+      body.querySelector('[data-ik="actionType"]').onchange = (e) => {
+        collectTriggerPane()
+        const type = e.target.value
+        const keep = type === 'run-ability' ? item.action?.ability : undefined
+        item.action = type === 'llm'
+          ? { type: 'llm' }
+          : type === 'run-ability' ? { type: 'run-ability', ability: keep || (ABILITIES[0]?.id ?? ''), args: {} }
+          : { type: 'send-text', template: '', channels: ['danmaku'] }
+        drawAction()
+        scheduleTriggerSave()
+      }
+      return box
+    }
+
+    /** 该事件类型可用的变量文档（含含义说明，来自 instant.schema） */
+    function varDocsFor(eventType) {
+      return [...((INSTANT_SCHEMA?.variables?.common) || []), ...((INSTANT_SCHEMA?.variables?.[eventType]) || [])]
+    }
+
+    /** 单个条件行：标签 + 输入 + 删除 */
+    function makeConditionRow(f, item, value) {
+      const row = document.createElement('div')
+      row.className = 'sl-row'
+      row.style.cssText = 'display:flex; gap:6px; align-items:center;'
+      const label = document.createElement('span')
+      label.style.cssText = 'font-size:11px; color:var(--th-text-secondary); flex:0 0 150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'
+      label.title = f.hint || f.label
+      label.textContent = f.label
+      row.appendChild(label)
+      const input = document.createElement('input')
+      input.className = 'tac-input'
+      input.style.flex = '1'
+      input.placeholder = f.placeholder || (f.kind === 'regex' ? '正则表达式' : f.kind === 'number' ? '数值（>0 生效）' : '')
+      input.value = value
+      if (f.kind === 'number') { input.type = 'number'; input.dataset.kind = 'number' }
+      else input.dataset.kind = f.kind
+      input.dataset.ck = f.key
+      // 输入即写回 item（避免重绘丢失）
+      input.onchange = () => { collectTriggerPane(); scheduleTriggerSave() }
+      row.appendChild(input)
+      const del = miniDangerBtn('删除条件')
+      del.onclick = () => {
+        // 先移除行再从剩余 DOM 收集：条件键按现存行重建，避免值失配导致删除不生效
+        row.remove()
+        collectTriggerPane()
+        scheduleTriggerSave()
+      }
+      row.appendChild(del)
+      return row
+    }
+
+    /** 上舰等级条件行（多选） */
+    function makeGuardRow(f, item) {
+      const row = document.createElement('div')
+      row.style.cssText = 'display:flex; gap:8px; align-items:center; flex-wrap:wrap;'
+      row.innerHTML = `<span style="font-size:11px; color:var(--th-text-secondary); flex:0 0 150px;" title="${escapeHtml(f.hint || '')}">${f.label}</span>` +
+        [1, 2, 3].map((lv) => `<label style="display:flex; gap:4px; align-items:center; font-size:12px; cursor:pointer;">
+          <input type="checkbox" data-ck-guardLevels="${lv}" ${(item.condition?.guardLevels ?? []).includes(lv) ? 'checked' : ''}> ${GUARD_LEVEL_NAMES[lv]}</label>`).join('') +
+        `<button class="tac-btn tac-btn-sm tac-btn-danger" type="button" style="padding:2px 8px; flex-shrink:0;">✕</button>`
+      row.querySelector('button').onclick = () => {
+        row.remove()
+        collectTriggerPane()
+        scheduleTriggerSave()
+      }
+      return row
+    }
+
+    /** 布尔条件行：紧凑开关 + 删除按钮 */
+    function makeBooleanRow(f, item) {
+      const row = document.createElement('div')
+      row.style.cssText = 'display:flex; gap:6px; align-items:center;'
+      const sw = compactSwitch(f.label, item.condition?.[f.key] === true, { ck: f.key })
+      sw.style.flex = '1'
+      row.appendChild(sw)
+      const del = miniDangerBtn('删除条件')
+      del.onclick = () => {
+        row.remove()
+        collectTriggerPane()
+        scheduleTriggerSave()
+      }
+      row.appendChild(del)
+      return row
+    }
+
+    // ============ 指令面板（单卡 + cc-card 折叠条目，自动保存） ============
+
+    function renderCommandsPane() {
+      const host = document.getElementById('commandsPaneBody')
+      if (!host || !activeConfig) return
+      // 整页重建会让滚动容器塌陷归零：保存视口位置，重建后恢复
+      const viewport = host.closest('.workspace-viewport')
+      const savedScrollTop = viewport ? viewport.scrollTop : 0
+      const commands = activeConfig.commands = activeConfig.commands || { enabled: true, items: [] }
+      commands.items = Array.isArray(commands.items) ? commands.items : []
+      host.innerHTML = ''
+
+      const headRight = document.createElement('div')
+      headRight.style.cssText = 'display:flex; gap:8px; align-items:center;'
+      const addBtn = document.createElement('button')
+      addBtn.className = 'tac-btn tac-btn-sm tac-btn-primary btn-lamp'
+      addBtn.type = 'button'
+      addBtn.textContent = '添加指令'
+      addBtn.onclick = () => { addCommandItem(commands) }
+      headRight.appendChild(addBtn)
+      const c1 = tacticalCard('icon-bolt', '弹幕指令 <span style="font-weight:400; font-size:10px; color:var(--th-text-muted);">COMMANDS</span>', { badge: 'DIRECT EXEC', right: headRight })
+      // 总开关：卡片内容区顶部的 toggle-row（与「即时应对」同款）
+      const commandsRow = document.createElement('div')
+      commandsRow.className = 'toggle-row'
+      commandsRow.style.cursor = 'pointer'
+      commandsRow.innerHTML = `
+        <div class="toggle-row-left">
+          <div class="toggle-row-title">弹幕指令</div>
+        </div>
+        <div class="toggle-row-right">
+          <span class="toggle-row-status ${commands.enabled !== false ? 'active' : 'inactive'}">${commands.enabled !== false ? '[ ENABLED ]' : '[ DISABLED ]'}</span>
+          <div class="toggle-row-led ${commands.enabled !== false ? 'active' : 'inactive'}"></div>
+        </div>`
+      commandsRow.onclick = () => {
+        collectCommandsPane()
+        commands.enabled = commands.enabled === false
+        refreshToggleRowVisual(commandsRow, commands.enabled !== false)
+        void persistCommandsPane()
+      }
+      c1.body.appendChild(commandsRow)
+      const itemsHost = document.createElement('div')
+      itemsHost.style.cssText = 'display:flex; flex-direction:column; gap:8px;'
+      itemsHost.dataset.commandItems = ''
+      commands.items.forEach((item) => itemsHost.appendChild(renderCommandItemCard(item, commands.items)))
+      c1.body.appendChild(itemsHost)
+      host.appendChild(c1.card)
+
+      host.onchange = (e) => {
+        if (e.target && e.target.matches('input, select')) scheduleCommandsSave()
+      }
+      if (viewport) viewport.scrollTop = savedScrollTop
+    }
+
+    /** 新增指令：仅追加新卡并展开，能力在卡内「执行能力」里配置 */
+    function addCommandItem(commands) {
+      collectCommandsPane()
+      const itemsHost = document.querySelector('[data-command-items]')
+      if (!itemsHost) return
+      const ability = ABILITIES[0]
+      const fresh = {
+        id: 'cmd-' + Date.now(), enabled: true,
+        ability: ability ? ability.id : 'jukebox_add_song', aliases: [''],
+        args: {}, permission: { mode: 'all' },
+        cooldown: { globalMs: 0, perUserMs: 3000 },
+        successTemplate: '', failureTemplate: '', announceToFeed: true,
+      }
+      commands.items.push(fresh)
+      commandExpanded.add(fresh.id)
+      itemsHost.appendChild(renderCommandItemCard(fresh, commands.items))
+      scheduleCommandsSave()
+    }
+
+    /** 指令条目：cc-card 折叠 + sl-row 别名编辑 */
+    function renderCommandItemCard(item, allItems) {
+      const { box, head, body, setOpen } = collapsibleCard()
+      box._item = item
+      item.aliases = Array.isArray(item.aliases) ? item.aliases : []
+      const headInfoSpan = (() => {
+        // 卡头信息区（局部刷新用：别名/能力变化只重绘此容器）
+        function headHtmlSafe() {
+          const ab = ABILITIES.find((a) => a.id === item.ability)
+          const firstAlias = (item.aliases.find((a) => a && a.trim()) || item.aliases[0] || '未设别名')
+          const restAliases = item.aliases.filter((a, i) => a && i !== item.aliases.indexOf(firstAlias))
+          return `
+            <strong style="font-size:12px; font-weight:700; color:var(--th-accent); flex-shrink:0;">/${escapeHtml(firstAlias)}</strong>
+            <span style="font-size:12px; color:var(--th-text-primary); flex-shrink:0;">${escapeHtml(ab?.name || item.ability)}</span>
+            <span style="font-size:10px; color:var(--th-text-muted); font-family:var(--font-mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${restAliases.map(escapeHtml).join(' / ')}</span>
+            <span style="font-size:10px; color:var(--th-text-muted); font-family:var(--font-mono); flex-shrink:0;">${item.aliases.filter(Boolean).length} 个别名</span>`
+        }
+        const infoSpan = document.createElement('span')
+        infoSpan.dataset.headInfo = ''
+        infoSpan.style.cssText = 'display:flex; gap:8px; align-items:center; min-width:0; flex:1;'
+        infoSpan.innerHTML = headHtmlSafe()
+        infoSpan.refresh = () => { infoSpan.innerHTML = headHtmlSafe() }
+        return infoSpan
+      })()
+      head.appendChild(headInfoSpan)
+      const refreshHead = () => { headInfoSpan.refresh() }
+      const enableToggle = smallToggle(item.enabled !== false, item.enabled !== false ? '启用' : '停用')
+      enableToggle.querySelector('input').dataset.k = 'enabled'
+      enableToggle.querySelector('input').onchange = () => {
+        // 开关视觉自身更新，无需整页重绘（保持视口位置）
+        collectCommandsPane()
+        scheduleCommandsSave()
+      }
+      head.appendChild(enableToggle)
+      const delBtn = miniDangerBtn('删除指令')
+      delBtn.onclick = () => {
+        const idx = allItems.indexOf(item)
+        if (idx >= 0) allItems.splice(idx, 1)
+        renderCommandsPane()
+        scheduleCommandsSave()
+      }
+      head.appendChild(delBtn)
+      setOpen(commandExpanded.has(item.id))
+
+      const perm = item.permission || { mode: 'all' }
+      body.innerHTML = `
+        <div>
+          <label class="param-slider-label">触发词别名（可多个）</label>
+          <div data-alias style="margin-top:6px;"></div>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:10px; margin-top:10px;">
+          <div class="cfg-field"><label class="cfg-field-label">执行能力</label>
+            <select class="tac-select" data-k="ability">${ABILITIES.map((a) =>
+              `<option value="${a.id}" ${item.ability === a.id ? 'selected' : ''}>[${ABILITY_GROUP_NAMES[a.group]}] ${a.name}</option>`).join('')}</select></div>
+          <div class="cfg-field"><label class="cfg-field-label">权限</label>
+            <select class="tac-select" data-k="permMode">
+              <option value="all" ${perm.mode === 'all' ? 'selected' : ''}>所有人</option>
+              <option value="medal" ${perm.mode === 'medal' ? 'selected' : ''}>粉丝牌等级 ≥</option>
+              <option value="guard" ${perm.mode === 'guard' ? 'selected' : ''}>舰长及以上</option>
+              <option value="uids" ${perm.mode === 'uids' ? 'selected' : ''}>指定用户白名单</option></select></div>
+          <div class="cfg-field" data-perm-extra="medal" style="display:${perm.mode === 'medal' ? '' : 'none'};"><label class="cfg-field-label">粉丝牌等级 ≥</label>
+            <input class="tac-input" type="number" data-k="medalLevel" value="${Number(perm.medalLevel ?? 5)}"></div>
+          <div class="cfg-field" data-perm-extra="uids" style="display:${perm.mode === 'uids' ? '' : 'none'};"><label class="cfg-field-label">白名单 UID（逗号分隔）</label>
+            <input class="tac-input" data-k="uids" value="${escapeHtml((perm.uids || []).join(','))}"></div>
+          <div class="cfg-field"><label class="cfg-field-label">全局冷却 (ms)</label><input class="tac-input" type="number" data-k="globalMs" value="${Number(item.cooldown?.globalMs ?? 0)}"></div>
+          <div class="cfg-field"><label class="cfg-field-label">每人冷却 (ms)</label><input class="tac-input" type="number" data-k="perUserMs" value="${Number(item.cooldown?.perUserMs ?? 0)}"></div>
+        </div>
+        <div data-args style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;"></div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+          <div class="cfg-field"><label class="cfg-field-label" title="支持 {{user.name}} {{message}} 等变量；空=不回复">成功回执模板</label>
+            <input class="tac-input" data-k="successTemplate" value="${escapeHtml(item.successTemplate || '')}"></div>
+          <div class="cfg-field"><label class="cfg-field-label">失败回执模板</label>
+            <input class="tac-input" data-k="failureTemplate" value="${escapeHtml(item.failureTemplate || '')}"></div>
+        </div>
+        <div data-foot style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;"></div>
+        <div style="font-size:11px; color:var(--th-text-muted); margin-top:4px;" data-matchhint></div>`
+
+      const footHost = body.querySelector('[data-foot]')
+      const drawFoot = () => {
+        footHost.innerHTML = ''
+        footHost.appendChild(compactSwitch('执行结果写入模型可见清单', item.announceToFeed !== false, { k: 'announceToFeed', pane: 'cmd' }))
+      }
+      drawFoot()
+
+      // 别名 sl-row 编辑（变更局部写回 + 刷新头部，不整卡重绘）
+      const aliasHost = body.querySelector('[data-alias]')
+      const drawAliases = () => {
+        aliasHost.innerHTML = ''
+        item.aliases.forEach((alias, ai) => {
+          const row = document.createElement('div')
+          row.className = 'sl-row'
+          row.style.cssText = 'display:flex; gap:6px; align-items:center; margin-bottom:6px;'
+          const input = document.createElement('input')
+          input.className = 'tac-input'
+          input.style.flex = '1'
+          input.placeholder = '触发词，如：点歌 / 点w歌'
+          input.value = alias
+          input.onchange = () => { item.aliases[ai] = input.value.trim(); refreshHead(); scheduleCommandsSave() }
+          row.appendChild(input)
+          const del = miniDangerBtn('删除别名')
+          del.onclick = () => { item.aliases.splice(ai, 1); drawAliases(); refreshHead(); scheduleCommandsSave() }
+          row.appendChild(del)
+          aliasHost.appendChild(row)
+        })
+        const addAlias = document.createElement('button')
+        addAlias.className = 'tac-btn tac-btn-sm'
+        addAlias.type = 'button'
+        addAlias.textContent = '+ 别名'
+        addAlias.onclick = () => { item.aliases.push(''); commandExpanded.add(item.id); drawAliases() }
+        aliasHost.appendChild(addAlias)
+      }
+      drawAliases()
+
+      // 固定参数（按能力声明动态渲染；能力变更局部刷新）
+      const argsHost = body.querySelector('[data-args]')
+      const drawArgs = () => {
+        argsHost.innerHTML = ''
+        const ability = ABILITIES.find((a) => a.id === item.ability)
+        const hint = body.querySelector('[data-matchhint]')
+        if (hint) {
+          hint.textContent = ability?.arg === 'rest'
+            ? `匹配语义：别名开头，尾部作为「${ability.argKey}」参数（如 "${(item.aliases.filter(Boolean)[0]) || '别名'} 参数"）`
+            : '匹配语义：整条弹幕精确匹配别名'
+        }
+        if (!ability?.params?.length) return
+        item.args = item.args || {}
+        for (const p of ability.params) {
+          if (p.kind === 'boolean') {
+            argsHost.appendChild(compactSwitch(p.label, item.args[p.key] !== false, { argk: p.key, pane: 'cmd' }))
+          } else {
+            const wrap = document.createElement('div')
+            wrap.className = 'cfg-field'
+            wrap.style.flex = '1 1 100%'
+            if (p.kind === 'select') {
+              wrap.innerHTML = `<label class="cfg-field-label" title="${escapeHtml(p.description || '')}">${p.label}（渠道别名实现方式）</label>
+                <select class="tac-select" data-argk="${p.key}">
+                  <option value="">（默认）</option>
+                  ${(p.options || []).map((o) => `<option value="${o}" ${item.args[p.key] === o ? 'selected' : ''}>${o}</option>`).join('')}
+                </select>`
+            } else {
+              wrap.innerHTML = `<label class="cfg-field-label" title="${escapeHtml(p.description || '')}">${p.label}</label>
+                <input class="tac-input" data-argk="${p.key}" value="${escapeHtml(String(item.args[p.key] ?? ''))}">`
+            }
+            argsHost.appendChild(wrap)
+          }
+        }
+      }
+      drawArgs()
+
+      body.querySelector('[data-k="ability"]').onchange = (e) => {
+        collectCommandsPane()
+        item.ability = e.target.value
+        item.args = {}
+        drawArgs()
+        refreshHead()
+        scheduleCommandsSave()
+      }
+      body.querySelector('[data-k="permMode"]').onchange = (e) => {
+        body.querySelectorAll('[data-perm-extra]').forEach((el) => {
+          el.style.display = el.dataset.permExtra === e.target.value ? '' : 'none'
+        })
+      }
+      return box
+    }
+
+    function scheduleCommandsSave() {
+      if (commandsSaveTimer) clearTimeout(commandsSaveTimer)
+      commandsSaveTimer = setTimeout(() => { void persistCommandsPane() }, 500)
+    }
+
+    /** 从 DOM 收集指令面板配置到 activeConfig（纯收集） */
+    function collectCommandsPane() {
+      const host = document.getElementById('commandsPaneBody')
+      if (!host || !activeConfig) return
+      const commands = activeConfig.commands
+      host.querySelectorAll('[data-command-items] .cc-card').forEach((card) => {
+        const item = card._item
+        if (!item) return
+        const val = (k) => card.querySelector(`[data-k="${k}"]`)
+        item.ability = val('ability').value
+        item.aliases = (item.aliases || []).map((a) => String(a ?? '').trim()).filter(Boolean)
+        const permMode = val('permMode').value
+        const perm = { mode: permMode }
+        if (permMode === 'medal') perm.medalLevel = Number(val('medalLevel')?.value) || 1
+        if (permMode === 'uids') perm.uids = (val('uids')?.value || '').split(/[,，\s]+/).filter(Boolean)
+        item.permission = perm
+        item.cooldown = {
+          globalMs: Number(val('globalMs').value) || 0,
+          perUserMs: Number(val('perUserMs').value) || 0,
+        }
+        item.args = item.args || {}
+        card.querySelectorAll('[data-argk]').forEach((el) => {
+          if (el.classList.contains('compact-switch')) item.args[el.dataset.argk] = el.classList.contains('on')
+          else { const v = el.value.trim(); if (v !== '') item.args[el.dataset.argk] = v; else delete item.args[el.dataset.argk] }
+        })
+        item.successTemplate = val('successTemplate').value
+        item.failureTemplate = val('failureTemplate').value
+        const announce = card.querySelector('[data-k="announceToFeed"]')
+        if (announce) item.announceToFeed = announce.classList.contains('on')
+        item.enabled = val('enabled').checked && item.aliases.length > 0
+      })
+    }
+
+    async function persistCommandsPane() {
+      commandsSaveTimer = null
+      if (!activeConfig) return
+      collectCommandsPane()
+      try {
+        const latest = await vtuberRPC.call('config.updatePaths', {
+          entries: [{ path: 'commands', value: activeConfig.commands }],
+        })
+        if (latest && typeof latest === 'object') activeConfig = latest
+      } catch (e) {
+        showTacticalToast('自动保存失败: ' + (e.message || e), 'err')
+      }
+    }
+
+    // ============ 日志面板（系统日志 + 大脑运行日志，与首页同口径） ============
+
+    let SYS_LOG_BUFFER = []
+    let SYS_LOG_TAG_FILTER = ''
+    let cogTraceCache = []
+    const COG_SOURCE_BADGES = {
+      batcher: ['tac-badge-accent', '合并触发'],
+      instant: ['tac-badge-warning', '即时插队'],
+      manual: ['tac-badge', '手动'],
+      playground: ['tac-badge', 'Playground'],
+    }
+    const COG_DECISION_BADGES = {
+      replied: ['tac-badge-success', '发言'],
+      silent: ['tac-badge', '沉默'],
+      error: ['tac-badge-error', '错误'],
+    }
+
+    function cogBadge(map, key) {
+      const conf = map[key] || ['tac-badge', key]
+      return `<span class="tac-badge ${conf[0]}" style="padding:0 5px;">${conf[1]}</span>`
+    }
+
+    function cogTime(ts) {
+      const d = new Date(ts)
+      const pad = (n) => String(n).padStart(2, '0')
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+    }
+
+    function switchLogsTab(name) {
+      document.querySelectorAll('[data-logstab]').forEach((el) => el.classList.remove('active', 'tac-btn-primary'))
+      const target = document.querySelector(`[data-logstab="${name}"]`)
+      target?.classList.add('active', 'tac-btn-primary')
+      document.getElementById('logsTabSys')?.style.setProperty('display', name === 'sys' ? '' : 'none')
+      document.getElementById('logsTabCog')?.style.setProperty('display', name === 'cog' ? '' : 'none')
+      if (name === 'cog') { loadCognitionTraces(); refreshCognitionStatus() }
+    }
+
+    function renderSysLogFull() {
+      const host = document.getElementById('logStreamFull')
+      if (!host) return
+      host.innerHTML = ''
+      const entries = SYS_LOG_TAG_FILTER
+        ? SYS_LOG_BUFFER.filter((e) => e.tag === SYS_LOG_TAG_FILTER)
+        : SYS_LOG_BUFFER
+      for (const e of entries) {
+        const div = document.createElement('div')
+        div.className = 'log-line'
+        div.innerHTML = `<span class="log-time">[${e.time}]</span><span class="log-tag ${e.type}">[${e.tag}]</span> <span>${escapeHtml(e.msg)}</span>`
+        host.appendChild(div)
+      }
+      host.scrollTop = host.scrollHeight
+    }
+
+    async function loadCognitionTraces() {
+      const host = document.getElementById('cogTraceList')
+      if (!host) return
+      host.innerHTML = '<div style="color:var(--th-text-muted); font-size:12px;">加载中...</div>'
+      try {
+        const source = (document.getElementById('cogSourceFilter') || {}).value || undefined
+        const res = await vtuberRPC.call('trace.list', { limit: 60, source })
+        cogTraceCache = (res && res.traces) || []
+        const total = (res && res.total) || 0
+        const badge = document.getElementById('cogTotalBadge')
+        if (badge) badge.textContent = `共 ${total} 条`
+        renderCognitionList()
+      } catch (e) {
+        host.innerHTML = `<div style="color:var(--th-warning); font-size:12px;">加载失败: ${escapeHtml(e.message || String(e))}</div>`
+      }
+    }
+
+    function renderCognitionList() {
+      const host = document.getElementById('cogTraceList')
+      if (!host) return
+      host.innerHTML = ''
+      if (!cogTraceCache.length) {
+        host.innerHTML = '<div style="color:var(--th-text-muted); font-size:12px;">暂无运行日志。大脑每次被唤醒（合并触发/即时插队/手动）都会在这里留痕。</div>'
+        return
+      }
+      cogTraceCache.forEach((row) => host.appendChild(renderCognitionCard(row)))
+    }
+
+    function renderCognitionCard(row, live) {
+      const card = document.createElement('div')
+      card.className = 'trigger-rule-card'
+      const tools = (() => {
+        try { return JSON.parse(row.tool_calls || '[]').map((c) => c.name) } catch { return [] }
+      })()
+      const outputs = (() => {
+        try { return JSON.parse(row.outputs || '[]') } catch { return [] }
+      })()
       card.innerHTML = `
-        <div class="trigger-card-head" style="cursor:pointer;" title="点击展开/折叠">
-          <div style="display:flex; align-items:center; gap:8px; min-width:0;">
-            <span class="tri-chevron">${expanded ? '▾' : '▸'}</span>
-            <span class="tac-badge ${rule.enabled ? 'tac-badge-accent' : 'tac-badge-error'}">RULE #${idx + 1}</span>
-            <strong style="font-size:13px; color:var(--th-text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(rule.name || rule.id)}</strong>
-            <span style="font-family:var(--font-mono); font-size:10px; color:var(--th-text-muted); flex-shrink:0;">${escapeHtml(modeLabel)}</span>
-          </div>
-          <div style="display:flex; gap:6px; align-items:center;">
-            <label class="tac-toggle-btn tac-toggle-btn-xs ${rule.enabled ? 'active tac-toggle-btn-success' : ''}" style="cursor:pointer;">
-              <input type="checkbox" data-k="enabled" hidden ${rule.enabled ? 'checked' : ''}>
-              <span class="tac-dot"></span>
-              <span>${rule.enabled ? '已激活' : '已禁用'}</span>
-            </label>
-            <button class="tac-btn tac-btn-sm" type="button" data-act="up">▲</button>
-            <button class="tac-btn tac-btn-sm" type="button" data-act="down">▼</button>
-            <button class="tac-btn tac-btn-sm tac-btn-danger" type="button" data-act="del">✕</button>
+        <div class="trigger-card-head" style="cursor:pointer;">
+          <div style="display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:wrap;">
+            <span class="tri-chevron">▸</span>
+            <span style="font-family:var(--font-mono); font-size:11px; color:var(--th-text-muted);">${cogTime(row.ts)}</span>
+            ${cogBadge(COG_SOURCE_BADGES, row.source)}
+            ${cogBadge(COG_DECISION_BADGES, row.decision)}
+            <span style="font-size:12px; color:var(--th-text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:420px;">${escapeHtml(row.reason || '')}</span>
+            <span style="font-family:var(--font-mono); font-size:10px; color:var(--th-text-muted);">${row.events_count ?? 0}条事件 · ${row.duration_ms ?? 0}ms${tools.length ? ' · ' + tools.join(',') : ''}</span>
           </div>
         </div>
-        <div class="trigger-card-body">
-        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:10px;">
-          <div class="cfg-field"><label class="cfg-field-label">规则标识 (ID)</label><input class="tac-input" data-k="id" value="${escapeHtml(rule.id || '')}"></div>
-          <div class="cfg-field"><label class="cfg-field-label">规则名称</label><input class="tac-input" data-k="name" value="${escapeHtml(rule.name || '')}"></div>
-          <div class="cfg-field"><label class="cfg-field-label">触发模式</label>
-            <select class="tac-select" data-k="mode">${TRIGGER_MODES_LIST.map((m) =>
-              `<option value="${m.value}" ${rule.mode === m.value ? 'selected' : ''}>${m.label}</option>`).join('')}</select>
-          </div>
-          <div class="cfg-field"><label class="cfg-field-label">防抖延迟 (ms)</label><input class="tac-input" type="number" data-k="delayMs" value="${Number(rule.delayMs || 0)}"></div>
-          <div class="cfg-field"><label class="cfg-field-label">最大批处理量</label><input class="tac-input" type="number" data-k="maxBatch" value="${Number(rule.maxBatch || 1)}"></div>
-          <div class="cfg-field"><label class="cfg-field-label">Cron 调度表达式</label><input class="tac-input" data-k="cron" value="${escapeHtml(rule.cron || '')}" placeholder="* * * * *"></div>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:4px;">
-          <label class="cfg-field-label">监听事件过滤 (EVENT FILTER)</label>
-          <div class="trigger-chip-group">${EVENT_TYPES_LIST.map((t) => {
-            const checked = (rule.eventTypes || []).includes(t);
-            return `<label class="trigger-chip"><input type="checkbox" data-ev="${t}" hidden ${checked ? 'checked' : ''}><span class="tac-dot"></span><span>${t}</span></label>`;
-          }).join('')}</div>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:4px;">
-          <label class="cfg-field-label">跨类型合并事件 (CROSS-TYPE MERGE)</label>
-          <div class="trigger-chip-group">${EVENT_TYPES_LIST.map((t) => {
-            const checked = (rule.mergeEvents || []).includes(t);
-            return `<label class="trigger-chip"><input type="checkbox" data-mv="${t}" hidden ${checked ? 'checked' : ''}><span class="tac-dot"></span><span>${t}</span></label>`;
-          }).join('')}</div>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:6px; border-top:1px solid var(--th-border-subtle); padding-top:8px;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <label class="cfg-field-label">执行动作管线 (ACTION PIPELINE)</label>
-            <button class="tac-btn tac-btn-sm" type="button" data-act="add-action">+ 动作</button>
-          </div>
-          <div data-actions style="display:flex; flex-direction:column; gap:6px;"></div>
-        </div>
-        </div>
-      `;
-
-      const actionBox = card.querySelector('[data-actions]');
-      const drawActions = () => {
-        actionBox.innerHTML = '';
-        (rule.actions || []).forEach((act, ai) => {
-          const row = document.createElement('div');
-          row.className = 'trigger-action-row';
-          row.innerHTML = `
-            <select class="tac-select" data-ak="type">${TRIGGER_ACTIONS_LIST.map((t) =>
-              `<option value="${t.value}" ${act.type === t.value ? 'selected' : ''}>${t.label}</option>`).join('')}</select>
-            <input class="tac-input" data-ak="detail" placeholder="toolName / prompt模板 / 延迟毫秒" value="${escapeHtml(act.tool || act.prompt || (act.waitMs ?? ''))}">
-            <button class="tac-btn tac-btn-sm tac-btn-danger" type="button" title="删除动作">✕</button>
-          `;
-          row.querySelector('button').onclick = () => {
-            rule.actions.splice(ai, 1);
-            drawActions();
-          };
-          actionBox.appendChild(row);
-        });
-      };
-
-      if (!Array.isArray(rule.actions)) rule.actions = [];
-      drawActions();
-
-      const enableInput = card.querySelector('[data-k="enabled"]');
-      const enableLabel = enableInput.closest('.tac-toggle-btn');
-      const enableSpan = enableLabel.querySelector('span:last-child');
-      const badge = card.querySelector('.tac-badge');
-
-      enableInput.onchange = (e) => {
-        rule.enabled = e.target.checked;
-        card.className = 'trigger-rule-card' + (rule.enabled ? '' : ' disabled');
-        enableLabel.classList.toggle('active', rule.enabled);
-        enableLabel.classList.toggle('tac-toggle-btn-success', rule.enabled);
-        enableSpan.textContent = rule.enabled ? '已激活' : '已禁用';
-        badge.className = `tac-badge ${rule.enabled ? 'tac-badge-accent' : 'tac-badge-error'}`;
-      };
-      card.querySelector('.trigger-card-head').onclick = (e) => {
-        if (e.target.closest('button, input, label, select')) return;
-        if (triggerExpanded.has(rule.id)) triggerExpanded.delete(rule.id);
-        else triggerExpanded.add(rule.id);
-        render(items);
-      };
-      card.querySelector('[data-act="del"]').onclick = () => { items.splice(idx, 1); render(items); };
-      card.querySelector('[data-act="up"]').onclick = () => {
-        if (idx === 0) return;
-        items.splice(idx - 1, 0, items.splice(idx, 1)[0]);
-        render(items);
-      };
-      card.querySelector('[data-act="down"]').onclick = () => {
-        if (idx >= items.length - 1) return;
-        items.splice(idx + 1, 0, items.splice(idx, 1)[0]);
-        render(items);
-      };
-      card.querySelector('[data-act="add-action"]').onclick = () => {
-        rule.actions.push({ type: 'llm-request' });
-        drawActions();
-      };
-
-      return card;
+        <div class="trigger-card-body" style="display:none;"></div>`
+      const head = card.querySelector('.trigger-card-head')
+      const body = card.querySelector('.trigger-card-body')
+      const chevron = card.querySelector('.tri-chevron')
+      head.onclick = () => {
+        const open = body.style.display !== 'none'
+        body.style.display = open ? 'none' : ''
+        chevron.textContent = open ? '▸' : '▾'
+        if (!open && !body._filled) {
+          body._filled = true
+          const segs = []
+          if (row.error) segs.push(`<div style="color:var(--th-warning); font-size:12px;">错误：${escapeHtml(row.error)}</div>`)
+          if (row.silent_reason) segs.push(`<div style="color:var(--th-text-muted); font-size:12px;">沉默理由：${escapeHtml(row.silent_reason)}</div>`)
+          if (row.model) segs.push(`<div style="font-size:11px; color:var(--th-text-muted);">模型：${escapeHtml(row.model)}</div>`)
+          if (outputs.length) {
+            segs.push(`<div style="font-size:12px;"><strong>实际输出：</strong><ul style="margin:4px 0 0 16px; padding:0;">${outputs.map((o) => `<li style="font-size:12px;">[${escapeHtml(o.method)}] ${escapeHtml(o.text)}</li>`).join('')}</ul></div>`)
+          }
+          if (row.response) segs.push(`<div style="font-size:12px; margin-top:6px;"><strong>模型回复：</strong><pre style="white-space:pre-wrap; font-size:11px; margin:4px 0; color:var(--th-text-secondary);">${escapeHtml(row.response)}</pre></div>`)
+          if (!live) {
+            segs.push(`<details style="margin-top:6px;"><summary style="font-size:11px; cursor:pointer; color:var(--th-text-muted);">展开完整 Prompt（${row.id ? '#' + row.id : ''}）</summary>
+              <pre style="white-space:pre-wrap; font-size:11px; margin:6px 0 0; color:var(--th-text-secondary);">===== SYSTEM =====\n${escapeHtml(row.system_prompt || '')}\n\n===== USER =====\n${escapeHtml(row.user_prompt || '')}</pre></details>`)
+          }
+          body.innerHTML = segs.join('') || '<div style="font-size:12px; color:var(--th-text-muted);">（无详情）</div>'
+        }
+      }
+      return card
     }
 
-    function collectTriggersData() {
-      const root = document.getElementById('triggerRoot');
-      if (!root) return [];
-      return [...root.querySelectorAll('.trigger-rule-card')].map((card) => {
-        const val = (k) => card.querySelector(`[data-k="${k}"]`);
-        const eventTypes = [...card.querySelectorAll('[data-ev]')].filter((el) => el.checked).map((el) => el.dataset.ev);
-        const mergeEvents = [...card.querySelectorAll('[data-mv]')].filter((el) => el.checked).map((el) => el.dataset.mv);
-        const actions = [...card.querySelectorAll('[data-actions] .trigger-action-row')].map((row) => {
-          const type = row.querySelector('[data-ak="type"]').value;
-          const detail = row.querySelector('[data-ak="detail"]').value.trim();
-          if (type === 'wait') return { type, waitMs: Number(detail) || 0 };
-          if (type === 'call-tool') return { type, tool: detail };
-          return { type, prompt: detail };
-        });
-        return {
-          id: val('id').value.trim() || ('rule-' + Date.now()),
-          name: val('name').value.trim() || '未命名规则',
-          enabled: val('enabled').checked,
-          mode: val('mode').value,
-          eventTypes,
-          delayMs: Number(val('delayMs').value) || 0,
-          maxBatch: Number(val('maxBatch').value) || 1,
-          mergeEvents,
-          cron: val('cron').value.trim(),
-          actions,
-        };
-      });
+    async function cognitionFireManual() {
+      const input = document.getElementById('cogDirectiveInput')
+      const directive = (input && input.value || '').trim()
+      showTacticalToast('已唤醒大脑，等待模型响应...', 'info')
+      try {
+        const res = await vtuberRPC.call('cognition.fire', { directive: directive || undefined })
+        const result = res && res.result
+        const decision = result ? result.decision : 'error'
+        const tip = decision === 'replied'
+          ? `发言完成（${(res.durationMs / 1000).toFixed(1)}s）`
+          : decision === 'silent' ? `选择沉默：${result.silentReason || '无理由'}` : `失败：${result.error}`
+        showTacticalToast(tip, decision === 'error' ? 'err' : 'success')
+        if (input) input.value = ''
+      } catch (e) {
+        showTacticalToast('唤醒失败: ' + (e.message || e), 'err')
+      }
+      void loadCognitionTraces()
+      void refreshCognitionStatus()
     }
 
-    // ===== 点歌指令配置卡（配置中心 directOrderCard 字段，复原原版样式） =====
-    // 折叠收敛到渠道级（renderChannelCommandsControl），整卡不再折叠
-
-    function renderCfgDirectOrderCard() {
-      const box = document.createElement('div');
-      box.className = 'tactical-panel hud-corner-brackets';
-      box.style.cssText = 'padding:0; display:flex; flex-direction:column;';
-      if (!activeConfig.music) activeConfig.music = {};
-      if (!activeConfig.music.directOrder) activeConfig.music.directOrder = { enabled: false, keywords: [], channelCommands: {} };
-      const doCfg = activeConfig.music.directOrder;
-      if (!Array.isArray(doCfg.keywords)) doCfg.keywords = [];
-      if (!doCfg.channelCommands || typeof doCfg.channelCommands !== 'object') doCfg.channelCommands = {};
-      if (!activeConfig.music.skipCommand) activeConfig.music.skipCommand = { enabled: false, keywords: ['切歌'], selfOnly: true };
-      const skCfg = activeConfig.music.skipCommand;
-      if (!Array.isArray(skCfg.keywords)) skCfg.keywords = [];
-      if (typeof skCfg.selfOnly !== 'boolean') skCfg.selfOnly = true;
-
-      // header：纯展示标题
-      const header = document.createElement('div');
-      header.className = 'section-header';
-      header.style.padding = '14px 16px';
-      header.innerHTML = '<span class="section-title"><svg style="width:14px;height:14px;fill:currentColor;"><use href="#icon-terminal"/></svg><span>' + escapeHtml(vtuberI18n.t('jb.orderCommands')) + '</span></span>';
-
-      const body = document.createElement('div');
-      body.style.cssText = 'padding:16px; display:flex; flex-direction:column; gap:14px;';
-      box.append(header, body);
-
-      // 直接点歌总开关（toggle-row）
-      const toggle = document.createElement('div');
-      toggle.className = 'toggle-row';
-      toggle.style.cursor = 'pointer';
-      const syncToggle = () => {
-        const on = doCfg.enabled;
-        toggle.innerHTML =
-          '<div class="toggle-row-left"><div class="toggle-row-title">' + escapeHtml(vtuberI18n.t('jb.directOrder')) + '</div>' +
-          '<div class="toggle-row-desc">' + escapeHtml(vtuberI18n.t('jb.directOrderDesc')) + '</div></div>' +
-          '<div class="toggle-row-right"><span class="toggle-row-status ' + (on ? 'active' : 'inactive') + '">' + (on ? 'ENABLED' : 'DISABLED') + '</span>' +
-          '<div class="toggle-row-led ' + (on ? 'active' : 'inactive') + '"></div></div>';
-      };
-      syncToggle();
-      toggle.onclick = () => {
-        doCfg.enabled = !doCfg.enabled;
-        savePathDebounced('music.directOrder.enabled', doCfg.enabled, 0);
-        syncToggle();
-      };
-      body.appendChild(toggle);
-
-      // 通用触发词（复用原版 renderStringListControl：即改即存 + 聚焦）
-      const kwLabel = document.createElement('div');
-      kwLabel.className = 'param-slider-label';
-      kwLabel.style.margin = '0';
-      kwLabel.textContent = vtuberI18n.t('jb.genericKeywords');
-      const kwHost = document.createElement('div');
-      body.append(kwLabel, kwHost);
-      renderStringListControl(kwHost, 'music.directOrder.keywords', doCfg.keywords, {
-        addLabel: vtuberI18n.t('jb.addKeyword'),
-        placeholder: '指令文本（如：点歌）',
-      });
-
-      // 渠道触发词（复用原版 renderChannelCommandsControl：品牌名 + 去重 + 聚焦）
-      const chLabel = document.createElement('div');
-      chLabel.className = 'param-slider-label';
-      chLabel.style.margin = '0';
-      chLabel.textContent = vtuberI18n.t('jb.channelKeywords') || '渠道触发词';
-      const chHost = document.createElement('div');
-      body.append(chLabel, chHost);
-      renderChannelCommandsControl(chHost, 'music.directOrder.channelCommands', doCfg.channelCommands);
-
-      // ===== 切歌指令（Ayna 风格：整条弹幕精确匹配触发词即跳过当前曲目） =====
-      const divider = document.createElement('div');
-      divider.style.cssText = 'border-top:1px solid var(--th-border-subtle); margin-top:4px;';
-      body.appendChild(divider);
-
-      const skipTitle = document.createElement('div');
-      skipTitle.className = 'param-slider-label';
-      skipTitle.style.margin = '0';
-      skipTitle.textContent = vtuberI18n.t('jb.skipCommand');
-      body.appendChild(skipTitle);
-
-      // toggle-row 工厂：title/desc + ENABLED/DISABLED 状态 + LED（样式同点歌总开关）
-      const makeToggleRow = (titleKey, descKey, getPath, isOn, onFlip) => {
-        const row = document.createElement('div');
-        row.className = 'toggle-row';
-        row.style.cursor = 'pointer';
-        const sync = () => {
-          const on = isOn();
-          row.innerHTML =
-            '<div class="toggle-row-left"><div class="toggle-row-title">' + escapeHtml(vtuberI18n.t(titleKey)) + '</div>' +
-            '<div class="toggle-row-desc">' + escapeHtml(vtuberI18n.t(descKey)) + '</div></div>' +
-            '<div class="toggle-row-right"><span class="toggle-row-status ' + (on ? 'active' : 'inactive') + '">' + (on ? 'ENABLED' : 'DISABLED') + '</span>' +
-            '<div class="toggle-row-led ' + (on ? 'active' : 'inactive') + '"></div></div>';
-        };
-        sync();
-        row.onclick = () => { onFlip(); savePathDebounced(getPath, isOn(), 0); sync(); };
-        return row;
-      };
-
-      body.appendChild(makeToggleRow('jb.skipEnable', 'jb.skipCommandDesc', 'music.skipCommand.enabled',
-        () => skCfg.enabled, () => { skCfg.enabled = !skCfg.enabled; }));
-
-      // 切歌触发词（复用 renderStringListControl：即改即存 + 聚焦）
-      const skKwLabel = document.createElement('div');
-      skKwLabel.className = 'param-slider-label';
-      skKwLabel.style.margin = '0';
-      skKwLabel.textContent = vtuberI18n.t('jb.skipKeywords');
-      const skKwHost = document.createElement('div');
-      body.append(skKwLabel, skKwHost);
-      renderStringListControl(skKwHost, 'music.skipCommand.keywords', skCfg.keywords, {
-        addLabel: vtuberI18n.t('jb.addKeyword'),
-        placeholder: '指令文本（如：切歌）',
-      });
-
-      body.appendChild(makeToggleRow('jb.skipSelfOnly', 'jb.skipSelfOnlyDesc', 'music.skipCommand.selfOnly',
-        () => skCfg.selfOnly, () => { skCfg.selfOnly = !skCfg.selfOnly; }));
-
-      // 底部说明
-      const note = document.createElement('div');
-      note.style.cssText = 'font-size:11px; color:var(--th-text-muted);';
-      note.textContent = '弹幕以触发词开头即点歌（余下文字为歌名）；渠道触发词固定用对应音源检索，与通用触发词按最长前缀匹配。切歌指令为整条弹幕精确匹配：开启「仅限点歌人」后观众只能切自己点的歌，空闲歌单曲目不受限。';
-      body.appendChild(note);
-
-      return box;
+    async function refreshCognitionStatus() {
+      const bar = document.getElementById('cogStatusBar')
+      if (!bar) return
+      try {
+        const s = await vtuberRPC.call('behavior.status', {})
+        const batch = s.batch || {}
+        const fired = s.batchFired || {}
+        const counts = s.counts || {}
+        const chips = []
+        chips.push(`<span class="tac-badge ${batch.count ? 'tac-badge-warning' : 'tac-badge'}">当前批 ${batch.count} 条</span>`)
+        if (batch.count) chips.push(`<span>静默倒计时 ${Math.ceil((batch.quietInMs || 0) / 1000)}s / 封顶 ${Math.ceil((batch.maxWaitInMs || 0) / 1000)}s</span>`)
+        chips.push(`<span>触发统计 静默${fired.quiet ?? 0} · 密度${fired.density ?? 0} · 封顶${fired['max-wait'] ?? 0} · 上限${fired['max-batch'] ?? 0}</span>`)
+        chips.push(`<span>活跃观众 ${s.viewers ?? 0}${s.online ? `（在线真值 ${s.online}）` : ''} · 记忆 ${s.memoryCount ?? 0} 条</span>`)
+        chips.push(`<span>大脑 发言${counts.replied ?? 0} · 沉默${counts.silent ?? 0} · 错误${counts.error ?? 0} · 队列${s.cognitionQueue ?? 0}</span>`)
+        bar.innerHTML = chips.join('<span style="color:var(--th-border);">|</span>')
+      } catch { /* 状态失败静默 */ }
     }
 
-    // ===== 歌曲信息文本输出编辑器（配置中心 npOutputs 字段，自管即存） =====
+    async function clearCognitionTraces() {
+      if (!confirm('确定清空全部大脑运行日志？')) return
+      try { await vtuberRPC.call('trace.clear', {}) } catch (e) { showTacticalToast('清空失败: ' + (e.message || e), 'err') }
+      void loadCognitionTraces()
+    }
+
+    // 实时推送：大脑每次调用完成即插入日志顶部（日志页可见时）
+    vtuberRPC.on('llm.trace', (t) => {
+      if (!t || typeof t !== 'object') return
+      const pane = document.getElementById('pane-logs')
+      if (!pane || !pane.classList.contains('active')) return
+      const cogTab = document.getElementById('logsTabCog')
+      if (!cogTab || cogTab.style.display === 'none') return
+      const host = document.getElementById('cogTraceList')
+      if (!host) return
+      host.prepend(renderCognitionCard({ ...t, tool_calls: JSON.stringify((t.tools || []).map((name) => ({ name }))), outputs: JSON.stringify(t.outputs || []) }, true))
+      while (host.children.length > 80) host.removeChild(host.lastChild)
+      void refreshCognitionStatus()
+    })
+
+    // 后端统一日志通道：链路失败/跳过立即可见（首页实时流 + 日志页同口径）
+    vtuberRPC.on('ui.log', (e) => {
+      if (!e || typeof e !== 'object') return
+      logMessage(String(e.tag || 'SYSTEM'), String(e.msg || ''), String(e.type || 'info'))
+    })
+
+    // 弹幕发送失败（插件回报）：日志可见，带 B站错误详情
+    vtuberRPC.on('danmaku.failed', (rec) => {
+      if (!rec || typeof rec !== 'object') return
+      logMessage('OUTPUT', `弹幕发送失败: 「${rec.text ?? ''}」(${rec.error ?? 'unknown'})`, 'err')
+    })
+
+    /** 发送测试弹幕：走 后端 OutputRouter → 插件 → B站 完整真实链路，一键验证最后一公里 */
+    async function sendTestDanmaku() {
+      const input = document.getElementById('testDanmakuInput')
+      const text = (input && input.value || '').trim()
+      if (!text) { showTacticalToast('请输入测试弹幕内容', 'err'); return }
+      logMessage('OUTPUT', `发送测试弹幕: 「${text}」`, 'info')
+      try {
+        const result = await vtuberRPC.call('output.route', { segments: [{ method: 'danmaku', text }] })
+        logMessage('OUTPUT', `测试弹幕路由结果: ${JSON.stringify(result)}（实际成败以随后 0.5~2s 内的 成功/失败 日志为准）`, 'info')
+      } catch (e) {
+        logMessage('OUTPUT', `测试弹幕调用失败: ${e.message || e}`, 'err')
+      }
+    }
+
+    function refreshSysLogTags() {
+      const sel = document.getElementById('sysLogTagFilter')
+      if (!sel) return
+      const tags = [...new Set(SYS_LOG_BUFFER.map((e) => e.tag))]
+      const current = SYS_LOG_TAG_FILTER
+      sel.innerHTML = '<option value="">全部标签</option>' + tags.map((t) => `<option value="${t}" ${t === current ? 'selected' : ''}>${t}</option>`).join('')
+    }
+
+    function onSysLogFilterChange() {
+      const sel = document.getElementById('sysLogTagFilter')
+      SYS_LOG_TAG_FILTER = sel ? sel.value : ''
+      renderSysLogFull()
+    }
+
     function renderCfgNpOutputs() {
       const box = document.createElement('div');
       box.className = 'tactical-panel hud-corner-brackets';
@@ -5385,7 +6593,6 @@
 
     /** 读取单个配置字段的当前值（自动保存与整分区保存共用） */
     function collectFieldValue(path, meta) {
-      if (meta.type === 'triggers') return collectTriggersData();
       if (meta.type === 'object') return collectObjectData(path, meta);
       const el = document.getElementById(fid(path));
       if (!el) return undefined;
@@ -5393,7 +6600,7 @@
       if (meta.type === 'number') return Number(el.value);
       if (meta.type === 'json') return JSON.parse(el.value || 'null');
       if (meta.type === 'kv') return collectKvData(path);
-      if (meta.type === 'font' || meta.type === 'output' || meta.type === 'npOutputs' || meta.type === 'directOrderCard') return undefined;
+      if (meta.type === 'font' || meta.type === 'output' || meta.type === 'npOutputs') return undefined;
       return el.value;
     }
 

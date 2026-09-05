@@ -22,7 +22,10 @@ const DICTIONARY = {
   'nav.tts': { zh: '语音合成', en: 'VOICE SYNTH' },
   'nav.mcp': { zh: 'MCP 接入', en: 'MCP CLIENT' },
   'nav.events': { zh: '事件接收', en: 'EVENT RECEPTION' },
-  'nav.triggers': { zh: '触发器', en: 'TRIGGER RULES' },
+  'nav.trigger': { zh: '触发器', en: 'TRIGGER' },
+  'nav.commands': { zh: '弹幕指令', en: 'COMMANDS' },
+  'nav.logs': { zh: '运行日志', en: 'LOGS' },
+  'nav.commands': { zh: '弹幕指令', en: 'COMMANDS' },
   'nav.output': { zh: '输出策略', en: 'OUTPUT STRATEGY' },
   'nav.systemLabel': { zh: '系统管理配置', en: 'SYSTEM CONFIG' },
   'nav.dashboard': { zh: '仪表盘', en: 'DASHBOARD' },
@@ -50,6 +53,8 @@ const DICTIONARY = {
   'dash.startCpp': { zh: '启动 C++ 执行器', en: 'START C++ EXECUTOR' },
   'dash.stopCpp': { zh: '停止执行器', en: 'STOP EXECUTOR' },
   'dash.realtimeLog': { zh: '实时系统日志流', en: 'REALTIME LOG STREAM' },
+  'dash.cognitionCalls': { zh: '大脑调用次数', en: 'COGNITION CALLS' },
+  'dash.cognitionDesc': { zh: '发言 / 沉默 / 错误', en: 'REPLIED / SILENT / ERROR' },
   'dash.clearLog': { zh: '清空日志', en: 'CLEAR' },
 
   // ===== Live2D 视口工坊 (l2d.*) =====
@@ -279,6 +284,8 @@ const DICTIONARY = {
   'prompt.vrEventCount': { zh: '本会话累计接收的事件数', en: 'Total events received this session' },
   'prompt.vrType': { zh: '触发事件类型（danmaku/gift/superchat/…）', en: 'Event type (danmaku/gift/superchat/...)' },
   'prompt.vrEventPath': { zh: '事件对象字段路径，如 {{event.user.name}}、{{event.data.content}}', en: 'Event field path, e.g. {{event.user.name}}, {{event.data.content}}' },
+  'prompt.vrMemory': { zh: '你最近说过的话（自我记忆，防重复感谢/玩梗）', en: 'Your recent replies (self memory)' },
+  'prompt.vrPathVars': { zh: '按点路径取事件字段/扩展数据，如 {{event.user.name}}、{{event.data.content}}', en: 'Access event fields / extra data by path, e.g. {{event.user.name}}' },
   'prompt.vrExtraPath': { zh: '事件扩展数据字段路径（礼物/SC 的附加信息）', en: 'Extra data path of the event (gift/SC attachments)' },
   'prompt.pgDefaultTrace': { zh: '点击「运行试算推理」即可使用当前模型进行免开播交互评估。', en: "Click 'RUN INFERENCE' to evaluate prompt with active model without broadcasting live." },
 
@@ -312,6 +319,7 @@ const DICTIONARY = {
   'cfg.autoSaved': { zh: '✓ 已自动保存', en: '✓ AUTO-SAVED' },
   'cfg.autoSaving': { zh: '… 自动保存中', en: '… AUTO-SAVING' },
   'cfg.savedSuccess': { zh: '✅ 配置分区已成功保存', en: '✅ Configuration section saved successfully' },
+  'cog.title': { zh: 'COGNITION LOG · 大脑运行日志', en: 'COGNITION LOG' },
   'cfg.saveError': { zh: '❌ 配置保存失败', en: '❌ Configuration save failed' },
   'cfg.ruleEditor': { zh: '触发规则可视化编辑器', en: 'TRIGGER RULE VISUAL EDITOR' },
   'cfg.actionPipeline': { zh: '执行动作管线', en: 'ACTION PIPELINE' },

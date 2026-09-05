@@ -6,6 +6,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
+import { defaultIncludeMap } from './core/event-catalog'
 
 // ============ 类型定义 ============
 
@@ -28,6 +29,10 @@ export interface EventReceiverConfig {
     guard: boolean
     liveStart: boolean
     liveEnd: boolean
+    /** 真实在线人数（仅 Web 连接模式有心跳真值） */
+    online: boolean
+    /** 累计看过人数（仅 Web 连接模式） */
+    watchedChange: boolean
   }
   /** 事件过滤阈值 */
   filters: {
@@ -36,39 +41,174 @@ export interface EventReceiverConfig {
   }
 }
 
-export type TriggerMode = 'immediate' | 'debounce' | 'cross-merge' | 'scheduled'
+// ============ 行为循环：上下文清单 / 密度合并 ============
 
-export interface TriggerConfig {
+/** LLM 上下文清单配置（第二层过滤：决定哪些事件呈现给模型；第一层是 events.enabledEvents 是否接收） */
+export interface FeedConfig {
+  /** 事件类型 → 是否进入清单（key 见 core/event-catalog.ts；未列出的类型不呈现） */
+  include: Record<string, boolean>
+  /** 清单最多呈现条数 */
+  maxEvents: number
+}
+
+/** 密度自适应合并：普通事件攒批后统一交给模型的策略 */
+export interface MergeConfig {
+  enabled: boolean
+  /** 静默窗口(ms)：窗口内无新事件即触发（1s~300s） */
+  quietWindowMs: number
+  /** 最大等待(ms)：持续有事件时封顶必发，防止热闹时段永远不触发；0 = 不设上限 */
+  maxWaitMs: number
+  /** 密度统计窗口（秒） */
+  densityWindowSec: number
+  /** 密度阈值：统计窗口内事件数达到即立即触发（刷屏时不再干等静默）；0 = 不启用 */
+  densityThreshold: number
+  /** 单批上限，达到立即触发；0 = 不限 */
+  maxBatch: number
+}
+
+export interface BehaviorConfig {
+  feed: FeedConfig
+  merge: MergeConfig
+}
+
+// ============ 指令系统：弹幕直达执行（不经过模型） ============
+// 能力注册表见 core/abilities.ts：指令与 LLM 工具同源对齐（可配置为指令 ⇔ 可暴露为工具）
+
+export interface CommandPermission {
+  /** all=所有人 / medal=粉丝牌等级 / guard=舰长及以上 / uids=指定用户 */
+  mode: 'all' | 'medal' | 'guard' | 'uids'
+  /** mode=medal：粉丝牌等级 ≥ */
+  medalLevel?: number
+  /** mode=uids：用户白名单 */
+  uids?: string[]
+}
+
+export interface CommandItem {
+  id: string
+  enabled: boolean
+  /** 预置能力 id（core/abilities.ts） */
+  ability: string
+  /** 触发词别名（多个；无参能力=整条匹配，有参能力=别名开头+尾部参数） */
+  aliases: string[]
+  /** 固定参数（覆盖能力默认；渠道别名 = 点歌能力 + 固定 source + 别名"点w歌"） */
+  args?: Record<string, unknown>
+  permission: CommandPermission
+  cooldown: {
+    /** 全局冷却 ms；0 = 不限 */
+    globalMs: number
+    /** 每人冷却 ms；0 = 不限 */
+    perUserMs: number
+  }
+  /** 成功回执模板（{{ok}} {{message}} + 事件变量）；空 = 不回复 */
+  successTemplate: string
+  /** 失败回执模板；空 = 不回复 */
+  failureTemplate: string
+  /** 命中后是否写入清单（system.command.executed），让模型知道后台执行了什么 */
+  announceToFeed: boolean
+}
+
+export interface CommandsConfig {
+  /** 指令总开关 */
+  enabled: boolean
+  items: CommandItem[]
+}
+
+// ============ 即时应对：事件条件直达处理 ============
+
+/** 条件字段按事件类型取用（全部可空 = 不限）；文本类字段支持数组 = 多个同类条件任一命中（OR），不同字段之间全部满足（AND） */
+export interface InstantCondition {
+  // —— 通用（含用户信息的事件）——
+  uids?: string[]
+  minMedalLevel?: number
+  guardOnly?: boolean
+  // —— 弹幕 ——
+  keywords?: string[]
+  regex?: string | string[]
+  startsWith?: string | string[]
+  // —— 礼物（价格单位：金瓜子）——
+  giftName?: string | string[]
+  giftNameContains?: string | string[]
+  minPrice?: number
+  minTotalPrice?: number
+  minNum?: number
+  // —— SC（单位：元）——
+  maxPrice?: number
+  // —— 点赞 / 在线 / 看过 ——
+  minCount?: number
+  // —— 上舰（1=总督 2=提督 3=舰长）——
+  guardLevels?: number[]
+  // —— 开播 / 点歌相关 ——
+  titleContains?: string | string[]
+  userName?: string | string[]
+  minPosition?: number
+  /** 仅观众点播（排除空闲歌单注入） */
+  userRequestOnly?: boolean
+  // —— 切歌 ——
+  byContains?: string | string[]
+  // —— 指令执行 ——
+  ability?: string | string[]
+  okOnly?: boolean
+  // —— 模型加载/切换 ——
+  modelName?: string | string[]
+}
+
+export type InstantAction =
+  | { type: 'llm'; /** 可选定向指令（空=模型自行判断） */ directive?: string }
+  | { type: 'send-text'; template: string; channels: Array<'danmaku' | 'display' | 'tts'> }
+  | { type: 'run-ability'; ability: string; args?: Record<string, unknown> }
+
+export interface InstantItem {
   id: string
   name: string
   enabled: boolean
-  mode: TriggerMode
-  /** 触发的事件类型（immediate/debounce/cross-merge 用） */
-  eventTypes: string[]
-  /** debounce：延迟窗口(ms) */
-  delayMs: number
-  /** debounce：最大合并条数 */
-  maxBatch: number
-  /** cross-merge：合并窗口内的其他事件类型 */
-  mergeEvents: string[]
-  /** scheduled：cron 表达式 */
-  cron: string
-  /** scheduled：动作序列 */
-  actions: TriggerAction[]
+  /** 触发事件类型（直播间事件 + 系统事件均可，见事件目录） */
+  eventType: string
+  condition: InstantCondition
+  action: InstantAction
+  /** 规则冷却 ms；0 = 不限 */
+  cooldownMs: number
+  /** 命中后是否写入清单（system.instant.sent） */
+  announceToFeed: boolean
 }
 
-export interface TriggerAction {
-  type: 'call-tool' | 'llm-request' | 'wait'
-  tool?: string
-  args?: Record<string, unknown>
-  prompt?: string
-  waitMs?: number
+export interface InstantConfig {
+  enabled: boolean
+  items: InstantItem[]
 }
 
 /** 思考/推理开关：anthropic/gemini 映射 canonical.thinking，openai 系映射 canonical.reasoning.effort */
 export interface LlmThinkingConfig {
   enabled: boolean
   effort?: string
+}
+
+/** 可设置提示词变量的设置（PROMPT STUDIO 变量参考「⚙设置」维护） */
+export interface VariableSettings {
+  /** {{history}}（event history）：进入变量的历史事件来源与条数 */
+  history: {
+    count: number
+    sources: {
+      danmaku: boolean
+      gift: boolean
+      superchat: boolean
+      enter: boolean
+      follow: boolean
+      like: boolean
+      guard: boolean
+      liveStart: boolean
+      liveEnd: boolean
+      /** system.* 后台事件 */
+      system: boolean
+    }
+  }
+  /** {{now}}：详细程度 / 时区 / 自定义模板（模板优先，支持 YYYY MM DD HH mm ss 占位） */
+  now: {
+    detail: 'datetime' | 'date' | 'time'
+    timezone: 'local' | 'utc' | 'offset'
+    /** timezone=offset 时的偏移小时（-12..14） */
+    offsetHours: number
+    template: string
+  }
 }
 
 /** 注册表中的 LLM 模型档案：字段逐项覆盖内联默认配置（为空回退内联值） */
@@ -110,6 +250,8 @@ export interface LLMConfig {
   mcpServers: Record<string, { command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>; enabled?: boolean }>
   /** 内联默认模型的思考开关 */
   thinking: LlmThinkingConfig
+  /** 可设置变量的设置（{{history}} / {{now}}） */
+  variables: VariableSettings
   /** 多模型注册表：name → 档案（LLM MODELS 面板维护） */
   models: Record<string, LlmModelProfile>
   /** 当前使用的注册表键；空 = 用上方内联字段 */
@@ -224,6 +366,8 @@ export interface DataRetentionConfig {
   playHistoryDays: number
   /** 事件历史保留天数，0 = 永久 */
   eventHistoryDays: number
+  /** LLM 运行日志保留天数，0 = 永久 */
+  llmTraceDays: number
   /** 前端事件日志显示上限（条，DOM 上限非存储上限） */
   frontendLogMax: number
 }
@@ -319,7 +463,12 @@ export interface BackendConfig {
   roomId: string
   server: ServerConfig
   events: EventReceiverConfig
-  triggers: TriggerConfig[]
+  /** 行为循环：上下文清单 + 密度自适应合并 */
+  behavior: BehaviorConfig
+  /** 指令系统：弹幕直达执行 */
+  commands: CommandsConfig
+  /** 即时应对：事件条件直达处理 */
+  instant: InstantConfig
   llm: LLMConfig
   tts: TTSConfig
   output: OutputConfig
@@ -350,47 +499,79 @@ export function defaultConfig(): BackendConfig {
         guard: true,
         liveStart: true,
         liveEnd: true,
+        online: true,
+        watchedChange: false,
       },
       filters: { minGiftPrice: 0, minSuperchatAmount: 0 },
     },
-    triggers: [
-      {
-        id: 'danmaku-debounce',
-        name: '弹幕合并',
-        enabled: true,
-        mode: 'debounce',
-        eventTypes: ['danmaku'],
-        delayMs: 5000,
-        maxBatch: 10,
-        mergeEvents: [],
-        cron: '',
-        actions: [],
+    behavior: {
+      feed: {
+        include: defaultIncludeMap(),
+        maxEvents: 30,
       },
-      {
-        id: 'gift-debounce',
-        name: '礼物合并',
+      merge: {
         enabled: true,
-        mode: 'debounce',
-        eventTypes: ['gift'],
-        delayMs: 3000,
-        maxBatch: 5,
-        mergeEvents: [],
-        cron: '',
-        actions: [],
+        quietWindowMs: 8000,
+        maxWaitMs: 30000,
+        densityWindowSec: 10,
+        densityThreshold: 15,
+        maxBatch: 50,
       },
-      {
-        id: 'superchat-immediate',
-        name: 'SC 立即触发',
-        enabled: true,
-        mode: 'immediate',
-        eventTypes: ['superchat', 'guard'],
-        delayMs: 0,
-        maxBatch: 1,
-        mergeEvents: [],
-        cron: '',
-        actions: [],
-      },
-    ],
+    },
+    commands: {
+      enabled: true,
+      items: [
+        {
+          id: 'cmd-order',
+          enabled: true,
+          ability: 'jukebox_add_song',
+          aliases: ['点歌'],
+          args: {},
+          permission: { mode: 'all' },
+          cooldown: { globalMs: 0, perUserMs: 3000 },
+          successTemplate: '',
+          failureTemplate: '',
+          announceToFeed: true,
+        },
+        {
+          id: 'cmd-skip',
+          enabled: true,
+          ability: 'jukebox_skip_song',
+          aliases: ['切歌'],
+          args: { selfOnly: true },
+          permission: { mode: 'all' },
+          cooldown: { globalMs: 2000, perUserMs: 5000 },
+          successTemplate: '',
+          failureTemplate: '',
+          announceToFeed: true,
+        },
+      ],
+    },
+    instant: {
+      enabled: true,
+      items: [
+        {
+          id: 'instant-welcome',
+          name: '入场欢迎',
+          enabled: true,
+          eventType: 'enter',
+          condition: {},
+          action: { type: 'send-text', template: '欢迎 {{user.name}} 进入直播间~', channels: ['danmaku'] },
+          cooldownMs: 2000,
+          announceToFeed: true,
+        },
+        {
+          id: 'instant-sc',
+          name: 'SC 立即回应',
+          enabled: true,
+          eventType: 'superchat',
+          condition: {},
+          action: { type: 'llm', directive: '收到了醒目留言，请优先真诚回应并致谢。' },
+          cooldownMs: 0,
+          announceToFeed: true,
+        },
+      ],
+    },
     llm: {
       provider: 'openai',
       baseURL: 'https://api.openai.com/v1',
@@ -398,6 +579,16 @@ export function defaultConfig(): BackendConfig {
       tools: {},
       mcpServers: {},
       thinking: { enabled: false },
+      variables: {
+        history: {
+          count: 20,
+          sources: {
+            danmaku: true, gift: true, superchat: true, enter: true, follow: true,
+            like: false, guard: true, liveStart: true, liveEnd: true, system: true,
+          },
+        },
+        now: { detail: 'datetime', timezone: 'local', offsetHours: 0, template: '' },
+      },
       models: {},
       activeModel: '',
       model: 'gpt-4o-mini',
@@ -407,14 +598,14 @@ export function defaultConfig(): BackendConfig {
       topP: 1,
       timeoutMs: 60000,
       systemPrompt: [
-        '你是直播间的 AI VTuber。根据事件用工具互动。',
-        '回复观众时必须调用 send_reply，segments.method 只能是 danmaku / display / tts。',
-        '弹幕要短；展示板可以稍长；tts 只放需要朗读的句子。',
-        '不要编造未发生的礼物或上舰。',
+        '你是直播间的 AI VTuber，以主播第一视角与观众互动。',
+        '每次收到的消息里有一份「直播间实时状况」清单（最新在最下），据此决定如何回应。',
+        '想回应时必须调用 send_reply，segments.method 只能是 danmaku / display / tts；弹幕要短，展示板可以稍长，tts 只放需要朗读的句子。',
+        '判断此刻没有值得回应的内容时，调用 stay_silent 并给出简短理由，不要强行找话；不要重复感谢同一位观众、不要重复玩同一个梗。',
+        '不要编造未发生的礼物或上舰。当前房间：{{roomId}}。',
+        '你最近说过的话（避免重复感谢/重复玩梗）：\n{{memory}}',
         '可用 Live2D 工具：live2d_expression / live2d_motion / live2d_transform / live2d_status。',
         '可用点歌工具：jukebox_search_song / jukebox_add_song / jukebox_skip_song / jukebox_get_queue / jukebox_get_current_song。搜索与点歌可带 source 指定渠道：kuwo / kugou / migu / bilivideo / netease / qq（netease、qq 需扫码登录后才可用），不指定则用默认渠道。',
-        '当前房间：{{roomId}}',
-        '最近事件：\n{{events}}',
       ].join('\n'),
     },
     tts: {
@@ -476,6 +667,7 @@ export function defaultConfig(): BackendConfig {
     dataRetention: {
       playHistoryDays: 90,
       eventHistoryDays: 30,
+      llmTraceDays: 7,
       frontendLogMax: 200,
     },
     live2d: {
@@ -580,6 +772,119 @@ export function loadConfig(configPath = 'backend-config.json'): BackendConfig {
       }
       delete userNp.template
       delete userNp.filePath
+    }
+    // 迁移：旧触发器引擎（immediate/debounce/cross-merge/cron）已整体移除，忽略旧配置并提示一次
+    if (Array.isArray(user.triggers) && user.triggers.length) {
+      console.log('[config] 旧触发器配置已移除（事件驱动由行为循环接管，定时/动作链不再支持）')
+      delete user.triggers
+    }
+    // 迁移：music.directOrder/skipCommand（旧直接点歌）→ commands.items（统一指令系统）
+    // 仅在用户尚未手工配置 commands 时执行；旧字段保留在配置中不再被消费
+    const userMusicCmd = user.music as {
+      directOrder?: { enabled?: boolean; keywords?: string[]; channelCommands?: Record<string, string[]> }
+      skipCommand?: { enabled?: boolean; keywords?: string[]; selfOnly?: boolean }
+    } | undefined
+    if (!user.commands && (userMusicCmd?.directOrder || userMusicCmd?.skipCommand)) {
+      const items: CommandItem[] = []
+      const doCfg = userMusicCmd?.directOrder
+      const stamp = Date.now()
+      let seq = 0
+      if (doCfg?.enabled) {
+        for (const [source, commands] of Object.entries(doCfg.channelCommands ?? {})) {
+          for (const alias of commands ?? []) {
+            if (!alias) continue
+            items.push({
+              id: `cmd-mig-${stamp}-${seq++}`, enabled: true,
+              ability: 'jukebox_add_song', aliases: [alias], args: { source },
+              permission: { mode: 'all' }, cooldown: { globalMs: 0, perUserMs: 3000 },
+              successTemplate: '', failureTemplate: '', announceToFeed: true,
+            })
+          }
+        }
+        for (const alias of doCfg.keywords ?? []) {
+          if (!alias) continue
+          items.push({
+            id: `cmd-mig-${stamp}-${seq++}`, enabled: true,
+            ability: 'jukebox_add_song', aliases: [alias], args: {},
+            permission: { mode: 'all' }, cooldown: { globalMs: 0, perUserMs: 3000 },
+            successTemplate: '', failureTemplate: '', announceToFeed: true,
+          })
+        }
+      }
+      const skip = userMusicCmd?.skipCommand
+      if (skip?.enabled) {
+        for (const alias of skip.keywords ?? []) {
+          if (!alias) continue
+          items.push({
+            id: `cmd-mig-${stamp}-${seq++}`, enabled: true,
+            ability: 'jukebox_skip_song', aliases: [alias], args: { selfOnly: skip.selfOnly !== false },
+            permission: { mode: 'all' }, cooldown: { globalMs: 2000, perUserMs: 5000 },
+            successTemplate: '', failureTemplate: '', announceToFeed: true,
+          })
+        }
+      }
+      if (items.length) {
+        user.commands = { enabled: true, items }
+        console.log(`[config] 直接点歌配置已迁移为指令系统：${items.length} 条指令`)
+      }
+    }
+    // 迁移：指令旧格式（keyword/match/command）→ 新格式（aliases/ability）
+    if (user.commands && Array.isArray((user.commands as { items?: unknown }).items)) {
+      const legacyAbilityMap: Record<string, string> = {
+        'jukebox-order': 'jukebox_add_song',
+        'jukebox-skip': 'jukebox_skip_song',
+        'jukebox-restart': 'jukebox_restart',
+        'live2d-costume': 'live2d_costume',
+        'live2d-expression': 'live2d_expression',
+        'live2d-motion': 'live2d_motion',
+        'live2d-reload': 'live2d_reload',
+      }
+      const commands = user.commands as { items: Array<Record<string, unknown>> }
+      for (const item of commands.items) {
+        if (item && typeof item === 'object' && typeof item.ability !== 'string') {
+          const legacyCommand = String(item.command ?? '')
+          item.ability = legacyAbilityMap[legacyCommand] ?? String(item.ability ?? legacyCommand)
+          if (!Array.isArray(item.aliases)) {
+            const keyword = String(item.keyword ?? '')
+            item.aliases = keyword ? [keyword] : []
+          }
+          delete item.command
+          delete item.keyword
+          delete item.match
+        }
+      }
+    }
+    // 迁移：即时应对旧格式（condition.type + action 字符串 + template/channels 顶层）→ 新格式（eventType + action 对象）
+    if (user.instant && Array.isArray((user.instant as { items?: unknown }).items)) {
+      const instant = user.instant as { items: Array<Record<string, unknown>> }
+      for (const item of instant.items) {
+        if (!item || typeof item !== 'object' || typeof item.eventType === 'string') continue
+        const oldCondition = (item.condition ?? {}) as { type?: string } & Record<string, unknown>
+        item.eventType = String(oldCondition.type ?? item.eventType ?? 'danmaku')
+        item.condition = { ...oldCondition }
+        delete (item.condition as Record<string, unknown>).type
+        const oldAction = String(item.action ?? '')
+        const template = String(item.template ?? '')
+        const channels = Array.isArray(item.channels) ? item.channels : ['danmaku']
+        if (oldAction === 'llm-immediate' || oldAction === 'llm') {
+          item.action = { type: 'llm', directive: template }
+        } else if (oldAction === 'run-tool' || oldAction === 'run-ability') {
+          item.action = { type: 'run-ability', ability: template, args: (item.args as Record<string, unknown>) ?? {} }
+        } else {
+          item.action = { type: 'send-text', template, channels }
+        }
+        delete item.template
+        delete item.channels
+        delete item.args
+      }
+    }
+    // 迁移：清理已移除的附加上下文配置键（feed.blocks / rulesAppendix）
+    const userBehavior = user.behavior as { feed?: { blocks?: unknown }; rulesAppendix?: unknown } | undefined
+    if (userBehavior?.feed && 'blocks' in (userBehavior.feed as object)) {
+      delete (userBehavior.feed as Record<string, unknown>).blocks
+    }
+    if (userBehavior && 'rulesAppendix' in userBehavior) {
+      delete (userBehavior as Record<string, unknown>).rulesAppendix
     }
     return deepMerge(defaults, user)
   } catch (err: any) {

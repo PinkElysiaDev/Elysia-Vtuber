@@ -56,6 +56,20 @@ export class EventBridge {
     private readonly logger: Logger,
   ) {}
 
+  /** 重连成功后补发断线期间积压的事件（上限 100 条，超出部分丢弃并告警） */
+  flushDisconnectQueue(): void {
+    if (!this.disconnectQueue.length) return
+    if (!this.backend.isConnected()) return
+    const batch = this.disconnectQueue.splice(0, this.disconnectQueue.length)
+    let sent = 0
+    for (const { roomId, event } of batch) {
+      this.backend.request('event.ingest', { roomId, event }).then(() => { sent++ }).catch((error) => {
+        this.logger.warn(`failed to re-ingest ${event.type}:`, error)
+      })
+    }
+    this.logger.info(`断线事件补发：${batch.length} 条（成功 ${sent}）`)
+  }
+
   start(): void {
     const roomId = String(this.config.roomId)
 
@@ -88,7 +102,8 @@ export class EventBridge {
       })
     }
 
-    // 全部 9 类事件无条件转发，是否接收/过滤由后端 events 配置统一决定
+    // 全部 11 类事件无条件转发（9 类直播间互动 + online/watchedChange 聚合事件），
+    // 是否接收/过滤由后端 events 配置统一决定
     const bindings: Array<[string, string, (s: any) => Record<string, unknown>]> = [
       ['danmaku', 'bililive/danmaku', (s) => ({ content: s.content ?? s.msg ?? s.message ?? '' })],
       ['gift', 'bililive/gift', (s) => ({
@@ -114,6 +129,9 @@ export class EventBridge {
       })],
       ['liveStart', 'bililive/live-start', (s) => ({ title: s.title, areaName: s.areaName ?? s.area_name })],
       ['liveEnd', 'bililive/live-end', () => ({})],
+      // 在线人数（Web 连接模式心跳真值）与看过人数（累计，仅 Web 模式）
+      ['online', 'bililive/online', (s) => ({ count: s.count })],
+      ['watchedChange', 'bililive/watched-change', (s) => ({ count: s.count })],
     ]
 
     for (const [type, eventName, mapper] of bindings) {
@@ -123,7 +141,11 @@ export class EventBridge {
 
   private standard(view: any, type: string, data: Record<string, unknown>): StandardEvent {
     // 开放平台 guard 事件的用户信息嵌在 user_info 里；web 模式用 medalName/medalLevel
-    const uid = String(view.userId ?? view.uid ?? view.user_info?.uid ?? view.user?.id ?? view.open_id ?? '')
+    // 开放平台 enter 等事件常以 uid=0 + open_id 标识用户：0 视为缺失，回退 open_id
+    const rawUid = view.userId ?? view.uid ?? view.user_info?.uid ?? view.user?.id
+    const uid = rawUid === 0 || rawUid === '0' || rawUid === undefined || rawUid === null
+      ? String(view.open_id ?? '')
+      : String(rawUid)
     const name = String(view.username || view.userName || view.uname || view.user_info?.uname || view.user?.name || '')
     const medalName = view.fansMedal?.name ?? view.fans_medal_name ?? view.medalName
     const medalLevel = view.fansMedal?.level ?? view.fans_medal_level ?? view.medalLevel

@@ -11,6 +11,7 @@ export interface RetentionDeps {
   db: VtuberDatabase
   getPlayHistoryDays: () => number
   getEventHistoryDays: () => number
+  getLlmTraceDays?: () => number
 }
 
 export class RetentionSweeper {
@@ -44,6 +45,11 @@ export class RetentionSweeper {
       if (ehDays > 0) {
         const deleted = this.deps.db.deleteOldEventHistory(ehDays)
         if (deleted > 0) console.log(`[retention] 事件历史清理：删除 ${deleted} 条（>${ehDays}天）`)
+      }
+      const traceDays = this.deps.getLlmTraceDays?.() ?? 7
+      if (traceDays > 0) {
+        const deleted = this.deps.db.deleteOldTraces(traceDays)
+        if (deleted > 0) console.log(`[retention] 运行日志清理：删除 ${deleted} 条（>${traceDays}天）`)
       }
     } catch (err) {
       console.warn('[retention] 清理失败:', err)

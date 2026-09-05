@@ -3,7 +3,6 @@ import * as path from 'path'
 import type { MusicConfig } from '../config'
 import { resolveBackendPath } from '../config'
 import type { CppClient } from '../cpp/client'
-import type { StandardEvent } from '../modules/events'
 import { createDefaultRegistry, type ProviderRegistry } from './registry'
 import type { MediaInfo, MetaData, NowPlaying, PlayHistoryRecord, QueueItem } from './types'
 import { MusicError } from './types'
@@ -19,6 +18,8 @@ export interface JukeboxDeps {
   getConfig: () => MusicConfig
   cpp: CppClient
   broadcast: (method: string, params: unknown) => void
+  /** 系统事件发射（写入主播视角事件清单）：system.jukebox.playing/added/skipped/restarted */
+  emit?: (type: string, data: Record<string, unknown>) => void
   registry?: ProviderRegistry
   /** SQLite 数据库（播放记录持久化） */
   db?: import('../core/database').VtuberDatabase
@@ -89,6 +90,7 @@ export class Jukebox {
     const kept = preserveQueue ? this.queue.slice() : []
     this.stop()
     this.queue = kept
+    this.deps.emit?.('system.jukebox.restarted', { preserveQueue })
     return this.start()
   }
 
@@ -157,6 +159,15 @@ export class Jukebox {
     this.queue.push(item)
     this.emitState()
     if (this.running) void this.ensurePlaying()
+    if (!input.idle) {
+      this.deps.emit?.('system.jukebox.added', {
+        title: media.title,
+        artist: media.artist,
+        source: media.meta.provider,
+        userName: input.userName || '',
+        position: this.queue.length,
+      })
+    }
     return { success: true, message: `已加入队列：${media.title} - ${media.artist}`, item: this.serializeItem(item) }
   }
 
@@ -191,7 +202,7 @@ export class Jukebox {
     return { success: true, count }
   }
 
-  skip(): { success: boolean; message: string } {
+  skip(by?: string): { success: boolean; message: string } {
     if (!this.running) return { success: false, message: '点歌机未启动' }
     // 空队列时仍允许 advance（待机模式可从 idlePlaylists 拉取歌曲）
     if (!this.nowPlaying && !this.pendingPlay && !this.queue.length && !this.flattenIdleRefs(this.deps.getConfig()).length) {
@@ -202,6 +213,10 @@ export class Jukebox {
       this.skipRequested = true
       return { success: true, message: '正在切歌，即将接续下一首' }
     }
+    this.deps.emit?.('system.jukebox.skipped', {
+      title: this.nowPlaying?.item.media.title ?? '',
+      by: by ?? '',
+    })
     void this.advance('skip')
     return { success: true, message: '已切歌' }
   }
@@ -461,69 +476,8 @@ export class Jukebox {
     }))
   }
 
-  tryDirectOrder(event: StandardEvent): boolean {
-    const cfg = this.deps.getConfig()
-    if (event.type !== 'danmaku') return false
-    const content = String(event.data?.content ?? '').trim()
-    // 切歌指令：整条弹幕精确匹配即跳过当前曲目（优先于点歌前缀匹配，独立于 directOrder 开关）
-    const skipCfg = cfg.skipCommand
-    if (skipCfg?.enabled && (skipCfg.keywords ?? []).some((k) => k.trim() && content === k.trim())) {
-      this.handleSkipCommand(event)
-      return true
-    }
-    if (!cfg.directOrder.enabled) return false
-    // 渠道触发词 + 通用触发词合并，最长前缀优先（避免"点歌"抢匹配"点w歌"）
-    const candidates: Array<{ keyword: string; source?: string }> = []
-    for (const [source, commands] of Object.entries(cfg.directOrder.channelCommands ?? {})) {
-      for (const keyword of commands ?? []) {
-        if (keyword) candidates.push({ keyword, source })
-      }
-    }
-    for (const keyword of cfg.directOrder.keywords ?? []) {
-      if (keyword) candidates.push({ keyword })
-    }
-    candidates.sort((a, b) => b.keyword.length - a.keyword.length)
-    const hit = candidates.find((item) => content.startsWith(item.keyword))
-    if (!hit) return false
-    const query = content.slice(hit.keyword.length).trim()
-    if (!query) return false
-    void this.add({
-      keyword: query,
-      source: hit.source,
-      userId: event.user?.uid || 'anon',
-      userName: event.user?.name || 'anon',
-    }).then((result) => {
-      this.deps.broadcast('jukebox.ordered', {
-        ok: result.success,
-        message: result.message,
-        user: event.user,
-        query,
-        source: hit.source || cfg.defaultSource,
-      })
-    }).catch((err) => {
-      this.deps.broadcast('jukebox.ordered', {
-        ok: false,
-        message: err instanceof Error ? err.message : String(err),
-        user: event.user,
-        query,
-        source: hit.source || cfg.defaultSource,
-      })
-    })
-    return true
-  }
-
-  /** 弹幕切歌（Ayna 风格）：selfOnly 时他人点的歌不可切，空闲曲目（userId=system）任何人可切 */
-  private handleSkipCommand(event: StandardEvent): void {
-    const np = this.nowPlaying
-    const uid = event.user?.uid || 'anon'
-    const title = np?.item.media.title || ''
-    if (np && this.deps.getConfig().skipCommand?.selfOnly && np.item.userId !== 'system' && np.item.userId !== uid) {
-      this.deps.broadcast('jukebox.skipCommanded', { ok: false, message: '只能切自己点的歌', user: event.user, title })
-      return
-    }
-    const result = this.skip()
-    this.deps.broadcast('jukebox.skipCommanded', { ok: result.success, message: result.message, user: event.user, title })
-  }
+  // 直接点歌（tryDirectOrder）已迁移至统一指令系统（core/commands.ts），
+  // 由 service 装配时将 jukebox-order/skip 指令接到 add()/skip() 上。
 
   /** 空闲歌单分组批量解析（WebUI 双栏展示用，只读；失败条目返回 ok:false 与原始 ref） */
   async previewIdleGroups(): Promise<Array<{
@@ -743,6 +697,12 @@ export class Jukebox {
       this.pushHistoryRecord(next)
       this.writeNowPlaying(this.nowPlaying)
       this.deps.broadcast('jukebox.nowPlaying', this.serializeNowPlaying())
+      this.deps.emit?.('system.jukebox.playing', {
+        title: next.media.title,
+        artist: next.media.artist,
+        source: next.media.meta.provider,
+        userName: next.userId === 'system' || next.idle ? '' : next.userName,
+      })
       this.emitState()
     } catch (err) {
       console.error(`[jukebox] advance(${reason}) failed:`, err)

@@ -77,15 +77,17 @@ export function apply(ctx: Context, config: Config) {
         logger.error('backend auto-start failed:', error)
       })
     }
-    await backend.connect().catch((error) => {
-      logger.error('backend connection failed:', error)
-    })
-    if (backend.isConnected()) {
+    // 重连后：补发断线期间积压的事件 + 重报就绪（首次连接同样经此路径）
+    backend.onReconnected = () => {
+      bridge.flushDisconnectQueue()
       backend.notify('koishi.ready', {
         roomId: config.roomId,
         pluginVersion: packageInfo.version,
       })
     }
+    await backend.connect().catch((error) => {
+      logger.error('backend connection failed:', error)
+    })
   })()
 
   /**

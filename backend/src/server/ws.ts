@@ -120,6 +120,16 @@ export class WsServer {
     this.byKind.get(info.kind)?.delete(ws)
   }
 
+  /** 指定类别是否有在线连接（如发送弹幕前检查插件是否在线） */
+  hasPeer(kind: 'plugin' | 'cpp' | 'webui'): boolean {
+    const connections = this.byKind.get(kind)
+    if (!connections) return false
+    for (const ws of connections) {
+      if (ws.readyState === WebSocket.OPEN) return true
+    }
+    return false
+  }
+
   /** 向指定类别的所有连接广播通知 */
   broadcast(kind: 'plugin' | 'cpp' | 'webui' | 'all', method: string, params?: unknown): void {
     const connections = kind === 'all'

@@ -1,11 +1,13 @@
 {
   "ipcPort": 19276,
+  "modelPath": "Resources/Haru/Haru.model3.json",
   "window": {
-    "title": "Vtuber Live2D",
-    "width": 800,
+    "alwaysOnTop": true,
     "height": 1000,
+    "title": "Vtuber Live2D",
     "transparent": true,
-    "alwaysOnTop": true
-  },
-  "modelPath": "Resources/Haru/Haru.model3.json"
+    "width": 800,
+    "x": 1941,
+    "y": 617
+  }
 }

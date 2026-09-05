@@ -35,6 +35,24 @@ export interface EventHistoryRow {
   data: string
 }
 
+export interface TraceRow {
+  id: number
+  ts: number
+  source: string
+  reason: string
+  decision: string
+  events_count: number
+  system_prompt: string
+  user_prompt: string
+  model: string
+  response: string
+  tool_calls: string
+  outputs: string
+  silent_reason: string | null
+  error: string | null
+  duration_ms: number
+}
+
 export class VtuberDatabase {
   private db: Database.Database | null = null
   private _playHistoryPath = ''
@@ -91,6 +109,25 @@ export class VtuberDatabase {
         data TEXT NOT NULL DEFAULT '{}'
       );
       CREATE INDEX IF NOT EXISTS idx_eh_ts ON event_history(timestamp DESC);
+
+      CREATE TABLE IF NOT EXISTS llm_trace (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        source TEXT NOT NULL DEFAULT '',
+        reason TEXT NOT NULL DEFAULT '',
+        decision TEXT NOT NULL DEFAULT '',
+        events_count INTEGER NOT NULL DEFAULT 0,
+        system_prompt TEXT NOT NULL DEFAULT '',
+        user_prompt TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        response TEXT NOT NULL DEFAULT '',
+        tool_calls TEXT NOT NULL DEFAULT '[]',
+        outputs TEXT NOT NULL DEFAULT '[]',
+        silent_reason TEXT,
+        error TEXT,
+        duration_ms INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_trace_ts ON llm_trace(ts DESC);
     `)
   }
 
@@ -171,6 +208,46 @@ export class VtuberDatabase {
     if (days <= 0) return 0
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
     const result = this.db!.prepare('DELETE FROM event_history WHERE timestamp < ?').run(cutoff)
+    return result.changes
+  }
+
+  // ==================== LLM 运行日志 ====================
+
+  insertTrace(row: Omit<TraceRow, 'id'>): number {
+    const result = this.db!.prepare(`
+      INSERT INTO llm_trace (ts, source, reason, decision, events_count, system_prompt, user_prompt, model, response, tool_calls, outputs, silent_reason, error, duration_ms)
+      VALUES (@ts, @source, @reason, @decision, @events_count, @system_prompt, @user_prompt, @model, @response, @tool_calls, @outputs, @silent_reason, @error, @duration_ms)
+    `).run(row)
+    return Number(result.lastInsertRowid)
+  }
+
+  getTraces(limit = 50, offset = 0, source?: string): TraceRow[] {
+    const d = this.db!
+    if (source) {
+      return d.prepare(`
+        SELECT * FROM llm_trace WHERE source = ? ORDER BY ts DESC LIMIT ? OFFSET ?
+      `).all(source, limit, offset) as TraceRow[]
+    }
+    return d.prepare(`
+      SELECT * FROM llm_trace ORDER BY ts DESC LIMIT ? OFFSET ?
+    `).all(limit, offset) as TraceRow[]
+  }
+
+  getTraceCount(source?: string): number {
+    if (source) {
+      return (this.db!.prepare('SELECT COUNT(*) as c FROM llm_trace WHERE source = ?').get(source) as { c: number }).c
+    }
+    return (this.db!.prepare('SELECT COUNT(*) as c FROM llm_trace').get() as { c: number }).c
+  }
+
+  clearTraces(): void {
+    this.db!.prepare('DELETE FROM llm_trace').run()
+  }
+
+  deleteOldTraces(days: number): number {
+    if (days <= 0) return 0
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+    const result = this.db!.prepare('DELETE FROM llm_trace WHERE ts < ?').run(cutoff)
     return result.changes
   }
 

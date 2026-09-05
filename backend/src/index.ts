@@ -6,27 +6,37 @@
 import * as path from 'path'
 import * as http from 'http'
 import * as fs from 'fs'
-import { loadConfig, BackendConfig, TriggerAction, backendRoot, saveConfig } from './config'
+import { loadConfig, BackendConfig, backendRoot, saveConfig } from './config'
 import { WsServer } from './server/ws'
 import { CppClient } from './cpp/client'
 import { EventBus } from './core/rpc'
 import { EventHistory } from './core/history'
 import { ToolRegistry } from './core/tools'
-import { expandArgs, expandTemplate } from './core/variables'
+import { expandTemplate } from './core/variables'
+import { AdaptiveBatcher, type BatchReason } from './core/batcher'
+import { ContextBuilder, isFeedIncluded } from './core/context'
+import { CommandSystem } from './core/commands'
+import { InstantEngine } from './core/instant'
+import { SelfMemory } from './core/memory'
+import { ViewerTable } from './core/viewers'
+import { TraceRecorder } from './core/trace'
+import { isSystemEventKey } from './core/event-catalog'
+import { buildAbilities, registerAbilityTools, refreshLive2dDescriptions, type Ability } from './core/abilities'
 import { LLMGateway } from './llm/gateway'
 import { LLMSession } from './llm/session'
+import { CognitionEngine } from './llm/cognition'
 import { buildSystemModule } from './modules/system'
 import { buildConfigModule } from './modules/config'
 import { buildEventModule, StandardEvent } from './modules/events'
+import { buildBehaviorModule } from './modules/behavior'
 import { buildJukeboxModule } from './modules/jukebox'
 import { Jukebox } from './music/jukebox'
 import { createDefaultRegistry } from './music/registry'
 import { LoginManager } from './music/login-manager'
 import { buildMusicLoginModule } from './modules/music-login'
 import { buildCppModule } from './modules/cpp'
-import { TriggerEngine, TriggerFire } from './modules/triggers'
-import { OutputRouter } from './modules/output'
-import { buildRuntimeModule, registerBuiltinTools, registerLive2dTools, LIVE2D_DYNAMIC_TOOLS } from './modules/tools'
+import { OutputRouter, type ReplySegment } from './modules/output'
+import { buildRuntimeModule, registerBuiltinTools } from './modules/tools'
 import { buildMcpModule } from './modules/mcp'
 import { McpManager } from './mcp/manager'
 import { buildLlmModelsModule } from './modules/llm-models'
@@ -52,7 +62,24 @@ class VtuberService {
   live2dCpp: CppClient
   history = new EventHistory(100)
   tools = new ToolRegistry()
-  triggers = new TriggerEngine()
+  /** 预置能力注册表（弹幕指令与 LLM 工具的单一来源） */
+  abilities: Ability[] = []
+  /** 短期自我记忆（我最近说过什么） */
+  memory = new SelfMemory(20)
+  /** 活跃观众表（进入/弹幕/礼物等事件共同维护的在场近似） */
+  viewers = new ViewerTable()
+  /** LLM 运行日志（每次大脑调用完整留痕） */
+  trace: TraceRecorder
+  /** 上下文清单构建器（主播视角事件清单 + 观众表 + 记忆） */
+  context: ContextBuilder
+  /** 统一认知引擎（所有"让大脑思考"的入口） */
+  cognition: CognitionEngine
+  /** 指令系统（弹幕直达执行） */
+  commands: CommandSystem
+  /** 即时规则（特定事件模板直回/插队唤醒） */
+  instant: InstantEngine
+  /** 密度自适应合并器 */
+  batcher: AdaptiveBatcher
   gateway: LLMGateway
   /** SQLite 数据库（播放记录/事件历史持久化） */
   db: VtuberDatabase
@@ -72,16 +99,16 @@ class VtuberService {
   private eventCount = 0
   private filteredCount = 0
   private lastEventAt = 0
+  /** 被过滤事件的提示限频（type -> 上次提示时间） */
+  private filteredLogAt = new Map<string, number>()
   private httpServer: http.Server | null = null
-  private fireQueue: TriggerFire[] = []
-  private firing = false
-  /** 待机动作调度 */
   private idleTimer: NodeJS.Timeout | null = null
   private idleSeq = 0
   private lastIdleAt = 0
   private lastLive2dJson = ''
   private lastWindowJson = ''
   private lastStageJson = ''
+  private live2dWasConnected = false
   private live2dApplyChain: Promise<void> = Promise.resolve()
   private stagePersistTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -103,6 +130,7 @@ class VtuberService {
       db: this.db,
       getPlayHistoryDays: () => this.config.dataRetention?.playHistoryDays ?? 90,
       getEventHistoryDays: () => this.config.dataRetention?.eventHistoryDays ?? 30,
+      getLlmTraceDays: () => this.config.dataRetention?.llmTraceDays ?? 7,
     })
     this.ttsEngine = new TtsEngine({
       getTts: () => this.config.tts,
@@ -114,6 +142,10 @@ class VtuberService {
       getConfig: () => this.config.output,
       getRoomId: () => this.getRoomId(),
       sendDanmaku: (text, roomId) => {
+        // 插件离线时广播无人接收 = 弹幕静默丢失，必须可见
+        if (!this.ws.hasPeer('plugin')) {
+          this.uiLog('OUTPUT', '弹幕未发送：Koishi 插件未连接（danmaku.send 无人接收）', 'err')
+        }
         this.ws.broadcast('plugin', 'danmaku.send', { roomId, text })
         this.ws.broadcast('webui', 'output.danmaku', { roomId, text })
       },
@@ -127,6 +159,11 @@ class VtuberService {
         this.ws.broadcast('webui', 'output.tts', { text })
         this.ttsEngine.speak(text)
       },
+      onSkip: (method, text, reason) => {
+        const label = method === 'danmaku' ? '弹幕' : method === 'display' ? '展示板' : 'TTS'
+        const cause = reason === 'disabled' ? '通道未启用' : '触发限流（超出每分钟上限）'
+        this.uiLog('OUTPUT', `${label}被跳过：${cause} —「${text.slice(0, 40)}」`, 'warn')
+      },
     })
     this.session = new LLMSession({
       gateway: this.gateway,
@@ -135,6 +172,102 @@ class VtuberService {
       getRoomId: () => this.getRoomId(),
       getHistory: () => this.history.recent(HISTORY_CONTEXT),
       getToolGate: () => this.config.llm.tools ?? {},
+    })
+    // ===== 行为循环装配：记忆/观众表/运行日志/上下文/认知/指令/即时规则/合并器 =====
+    this.trace = new TraceRecorder({
+      db: this.db,
+      broadcast: (method, params) => this.ws.broadcast('webui', method, params),
+    })
+    this.context = new ContextBuilder({
+      getFeedConfig: () => this.config.behavior.feed,
+      // 取 2 倍余量：清单按 include 过滤后仍能填满 maxEvents
+      getHistory: () => this.history.recent(Math.max(this.config.behavior.feed.maxEvents * 2, 60)),
+    })
+    this.cognition = new CognitionEngine({
+      session: this.session,
+      gateway: this.gateway,
+      context: this.context,
+      trace: this.trace,
+      getSystemPrompt: () => this.config.llm.systemPrompt,
+      getRoomId: () => this.getRoomId(),
+      getMemory: () => this.memory.format(8),
+      // {{history}}（event history）：按用户设置的来源过滤 + 条数截断
+      getHistory: () => {
+        const settings = this.config.llm.variables?.history
+        const sources = settings?.sources
+        const count = Math.max(1, Math.min(100, Number(settings?.count) || 20))
+        const pool = this.history.recent(Math.max(count * 3, 60))
+        const filtered = pool.filter((event) => {
+          if (String(event.type).startsWith('system.')) return sources ? sources.system !== false : true
+          return sources ? sources[event.type as keyof typeof sources] !== false : true
+        })
+        return filtered.slice(-count)
+      },
+      // {{state.xxx}} 后端状态变量
+      getBackendState: () => {
+        const jb = this.jukebox.getState()
+        const np = jb.nowPlaying as { title?: string; artist?: string } | null
+        return {
+          jukebox: {
+            playing: np ? `${np.title ?? '?'}${np.artist ? ` - ${np.artist}` : ''}` : '（空闲）',
+            queue: `${(jb.queue ?? []).length} 首`,
+            running: Boolean(jb.running),
+          },
+          live2d: {
+            model: path.basename(this.config.live2d.modelPath || '') || '（未配置）',
+            connected: this.live2dCpp.isConnected(),
+          },
+        }
+      },
+      getVariableSettings: () => this.config.llm.variables,
+      onOutputs: (outputs) => this.memory.record(outputs.map((o) => o.text).join(' / ')),
+    })
+    this.commands = new CommandSystem({
+      getConfig: () => this.config.commands,
+      getAbility: (id) => this.abilities.find((a) => a.id === id),
+      expand: (template, event, extra) => expandTemplate(template, {
+        events: [event], history: [], roomId: this.getRoomId(), extra,
+      }),
+      run: (ability, args, event) => this.runAbility(ability.id, args, event),
+      reply: (text) => { void this.speakOut([{ method: 'danmaku', text }]) },
+      emit: (data, event) => this.emitSystem('system.command.executed', {
+        ...data,
+        userName: event.user?.name ?? '',
+        uid: event.user?.uid ?? '',
+      }),
+    })
+    this.instant = new InstantEngine({
+      getConfig: () => this.config.instant,
+      getRoomId: () => this.getRoomId(),
+      route: async (segments) => this.speakOut(segments),
+      onLlm: (event, directive, ruleName) => {
+        void this.cognition.request({
+          source: 'instant',
+          reason: `即时应对「${ruleName}」插队`,
+          events: [event],
+          directive,
+          priority: 0,
+        })
+      },
+      runAbility: async (ability, args) => this.runAbility(ability, args),
+      emit: (data, event) => this.emitSystem('system.instant.sent', {
+        ...data,
+        userName: event.user?.name ?? '',
+      }),
+    })
+    this.batcher = new AdaptiveBatcher({
+      getConfig: () => this.config.behavior.merge,
+      // 只收集"会呈现给模型"的直播间事件；系统事件只进清单不触发
+      shouldCollect: (event) =>
+        !isSystemEventKey(event.type) && isFeedIncluded(event.type, this.config.behavior.feed),
+      onFire: (fire) => {
+        void this.cognition.request({
+          source: 'batcher',
+          reason: `${batchReasonText(fire.reason)}（${fire.events.length} 条事件）`,
+          events: fire.events,
+          priority: 1,
+        })
+      },
     })
     this.jukebox = new Jukebox({
       registry: createDefaultRegistry(),
@@ -146,6 +279,7 @@ class VtuberService {
       },
       cpp: this.audioCpp,
       broadcast: (method, params) => this.ws.broadcast('webui', method, params),
+      emit: (type, data) => this.emitSystem(type, data),
     })
     this.loginManager = new LoginManager({
       registry: this.jukebox.registry,
@@ -155,16 +289,14 @@ class VtuberService {
       },
       broadcast: (method, params) => this.ws.broadcast('webui', method, params),
     })
+    // 认知元工具 + 能力注册表（指令与 LLM 工具同源）
     registerBuiltinTools({
       tools: this.tools,
       output: this.output,
-      triggers: this.triggers,
       session: this.session,
-      cpp: this.live2dCpp,
-      jukebox: this.jukebox,
       getRoomId: () => this.getRoomId(),
     })
-    this.reregisterLive2dTools()
+    this.reregisterAbilities()
     this.mcp = new McpManager({
       tools: this.tools,
       getConfig: () => this.config.llm.mcpServers ?? {},
@@ -179,8 +311,6 @@ class VtuberService {
     void this.mcp.reconnectAll().catch((err: unknown) => {
       console.warn('[mcp] 初始连接失败:', err instanceof Error ? err.message : String(err))
     })
-    this.triggers.setCallback((fire) => this.onTrigger(fire))
-    this.triggers.configure(this.config.triggers)
     // 与 applyConfigRuntime 的 diff 口径一致：window/assetRegistration/stage 单独处理，不参与模型重载判定
     const { window: _initWin, assetRegistration: _initAssets, stage: _initStage, ...initLive2d } = this.config.live2d
     this.lastLive2dJson = JSON.stringify(initLive2d)
@@ -206,6 +336,13 @@ class VtuberService {
     })
     this.live2dCpp.onStateChange((state) => {
       this.ws.broadcast('webui', 'live2d.state', state)
+      // 连接状态变化写入清单（主播视角的后台日志）
+      if (state.connected && !this.live2dWasConnected) {
+        this.emitSystem('system.live2d.connected', {})
+      } else if (!state.connected && this.live2dWasConnected) {
+        this.emitSystem('system.live2d.disconnected', {})
+      }
+      this.live2dWasConnected = state.connected
     })
     // 悬浮面板舞台编辑 → 持久化（不回推执行器）+ 广播 WebUI 联动
     this.live2dCpp.onEvent('live2d.stageChanged', (params) => this.onExecutorStageChanged(params))
@@ -246,14 +383,27 @@ class VtuberService {
     return this.config.roomId ?? ''
   }
 
-  /** 注册表变更后重建 live2d 动态工具（描述与可用列表反映最新注册表） */
-  private reregisterLive2dTools(): void {
-    for (const name of LIVE2D_DYNAMIC_TOOLS) this.tools.unregister(name)
-    registerLive2dTools({
-      tools: this.tools,
+  /** 后端 → 前端统一日志通道（首页实时流 + 日志页立即可见） */
+  uiLog(tag: string, msg: string, type: 'info' | 'warn' | 'err' | 'success' | 'event' = 'info'): void {
+    console.log(`[${tag}] ${msg}`)
+    this.ws.broadcast('webui', 'ui.log', { tag, msg, type })
+  }
+
+  /** 注册表变更后重建能力工具（Live2D 资源注册表的可用项清单内联进工具描述） */
+  private reregisterAbilities(): void {
+    for (const ability of this.abilities) this.tools.unregister(ability.id)
+    this.abilities = buildAbilities({
+      jukebox: this.jukebox,
       cpp: this.live2dCpp,
-      getRegistration: () => this.config.live2d.assetRegistration,
+      getLive2dConfig: () => this.config.live2d,
+      reloadLive2d: async () => {
+        await applyLive2dConfig(this.live2dCpp, this.config.live2d)
+        this.emitSystem('system.live2d.loaded', {
+          model: path.basename(this.config.live2d.modelPath || ''),
+        })
+      },
     })
+    registerAbilityTools(this.tools, this.abilities)
   }
 
   /** 待机动作调度：动作空闲且到达间隔后按 随机/顺序 取下一个下发 */
@@ -315,68 +465,107 @@ class VtuberService {
       console.warn('[db] 事件历史写入失败:', err)
     }
     this.bus.emit('event', event)
-    if (this.jukebox.tryDirectOrder(event)) return
-    this.triggers.handleEvent(event)
+    this.viewers.touch(event)
+    if (event.type === 'liveEnd') this.viewers.reset()
+    void this.dispatchEvent(event)
   }
 
-  private async onTrigger(fire: TriggerFire): Promise<void> {
-    this.fireQueue.push(fire)
-    if (this.firing) return
-    this.firing = true
+  /**
+   * 事件分发链（直达路径优先，剩余进合并器）：
+   * ① 指令系统（弹幕别名匹配 → 直接执行能力，省 token）
+   * ② 即时应对（事件条件 → 模板直发 / 插队唤醒大脑 / 执行能力）
+   * ③ 未被消费 → 密度合并器（LLM 主路径）
+   */
+  private async dispatchEvent(event: StandardEvent): Promise<void> {
     try {
-      while (this.fireQueue.length) {
-        const next = this.fireQueue.shift()!
-        await this.executeFire(next)
-      }
-    } finally {
-      this.firing = false
-    }
-  }
-
-  private async executeFire(fire: TriggerFire): Promise<void> {
-    this.ws.broadcast('webui', 'trigger.fired', {
-      id: fire.rule.id,
-      reason: fire.reason,
-      eventCount: fire.events.length,
-    })
-    try {
-      const actions = fire.rule.actions?.length
-        ? fire.rule.actions
-        : [{ type: 'llm-request' as const }]
-      for (const action of actions) {
-        await this.runAction(action, fire.events)
-      }
+      if (await this.commands.handle(event)) return
+      if (await this.instant.handle(event)) return
     } catch (err) {
-      console.error(`[trigger] ${fire.rule.id} failed:`, err)
+      console.warn('[behavior] 直达路径处理失败（事件转交合并器）:', err)
+    }
+    try {
+      this.batcher.push(event)
+    } catch (err) {
+      console.warn('[behavior] 合并器接收失败:', err)
     }
   }
 
-  private async runAction(action: TriggerAction, events: StandardEvent[]): Promise<void> {
-    const ctx = {
-      events,
-      history: this.history.recent(HISTORY_CONTEXT),
+  /** 系统后台事件（主播视角的后台日志）：进历史/清单 + 即时应对（不参与指令/合并触发） */
+  emitSystem(type: string, data: Record<string, unknown>): void {
+    const event: StandardEvent = {
+      type,
+      timestamp: Date.now(),
       roomId: this.getRoomId(),
+      data,
     }
-    if (action.type === 'wait') {
-      const ms = Math.max(0, action.waitMs ?? 0)
-      if (ms) await new Promise((resolve) => setTimeout(resolve, ms))
-      return
+    this.history.push(event)
+    try {
+      this.db.insertEventHistory({
+        type: event.type,
+        timestamp: event.timestamp,
+        room_id: event.roomId,
+        user_uid: null,
+        user_name: typeof data.userName === 'string' ? data.userName : null,
+        user_face: null,
+        data: JSON.stringify(data ?? {}),
+      })
+    } catch {
+      // 历史落库失败不影响内存清单
     }
-    if (action.type === 'call-tool') {
-      if (!action.tool) return
-      const args = expandArgs(action.args, ctx)
-      await this.tools.call(action.tool, args)
-      return
+    this.bus.emit('event', event)
+    // 系统事件也可作为即时应对的触发源（如"点歌成功"→自动致谢）
+    void this.instant.handle(event).catch((err: unknown) => {
+      console.warn('[instant] 系统事件处理失败:', err instanceof Error ? err.message : String(err))
+    })
+  }
+
+  /** 发言出口统一走这里：输出路由 + 短期记忆（模型/即时规则/指令回执共用） */
+  /** 发言出口统一走这里：输出路由 + 短期记忆（模型/即时应对/指令回执共用）；返回实际发送结果 */
+  private async speakOut(segments: Array<{ method: string; text: string }>): Promise<{ sent: number; skipped: number }> {
+    const reply: ReplySegment[] = segments
+      .filter((s) => s.text && s.text.trim())
+      .map((s) => ({
+        method: s.method === 'display' || s.method === 'tts' ? s.method : 'danmaku',
+        text: s.text,
+      }))
+    if (!reply.length) return { sent: 0, skipped: 0 }
+    const result = await this.output.route(reply)
+    this.memory.record(reply.map((s) => s.text).join(' / '))
+    return result
+  }
+
+  /** 能力执行体：指令/即时应对/LLM 工具共用同一路径（经 ToolRegistry） */
+  private async runAbility(
+    abilityId: string,
+    args: Record<string, unknown>,
+    event?: StandardEvent,
+  ): Promise<{ ok: boolean; message: string }> {
+    const result = await this.tools.call(abilityId, args)
+    const rec = result as { success?: boolean; message?: string; error?: string }
+    const ok = rec?.success !== false
+    const message = ok
+      ? String(rec?.message ?? '已执行')
+      : String(rec?.message ?? rec?.error ?? '执行失败')
+    // 保持 WebUI 点歌通知兼容（原直接点歌的广播）
+    if (event && abilityId === 'jukebox_add_song') {
+      this.ws.broadcast('webui', 'jukebox.ordered', {
+        ok, message,
+        user: event.user,
+        query: String(args.keyword ?? ''),
+        source: String(args.source ?? this.config.music.defaultSource),
+      })
     }
-    if (action.type === 'llm-request') {
-      const prompt = action.prompt ? expandTemplate(action.prompt, ctx) : undefined
-      await this.session.run(events, prompt)
+    if (event && abilityId === 'jukebox_skip_song') {
+      const np = this.jukebox.getState().nowPlaying as { title?: string } | null
+      this.ws.broadcast('webui', 'jukebox.skipCommanded', {
+        ok, message, user: event.user, title: np?.title ?? '',
+      })
     }
+    return { ok, message }
   }
 
   private applyConfigRuntime(): void {
     this.gateway.setConfig(this.config.llm)
-    this.triggers.configure(this.config.triggers)
     this.audioCpp.setConfig(this.config.audioCpp)
     this.live2dCpp.setConfig(this.config.live2dCpp)
     // 窗口配置单独 diff：改窗口参数不应触发模型重载
@@ -395,6 +584,11 @@ class VtuberService {
       // 串行队列：滑杆高频保存时旧的应用晚到会覆盖新值，按提交顺序执行
       this.live2dApplyChain = this.live2dApplyChain
         .then(() => applyLive2dConfig(this.live2dCpp, this.config.live2d))
+        .then(() => {
+          this.emitSystem('system.live2d.modelChanged', {
+            model: path.basename(this.config.live2d.modelPath || ''),
+          })
+        })
         .catch(() => { /* 单次应用失败不阻断后续 */ })
     }
     // 舞台配置单独 diff：改物理/背景/FPS 不应触发模型重载
@@ -419,7 +613,6 @@ class VtuberService {
       getEventCount: () => this.eventCount,
       getFilteredCount: () => this.filteredCount,
       getLastEventAt: () => this.lastEventAt,
-      getTriggerCount: () => this.triggers.getRules().filter((r) => r.enabled).length,
       hasLlmKey: () => Boolean(this.config.llm.apiKey),
       getJukebox: () => {
         const state = this.jukebox.getState()
@@ -433,6 +626,15 @@ class VtuberService {
           configured: Boolean(this.config.tts.appId && this.config.tts.token),
         }
       },
+      getBehavior: () => ({
+        batch: this.batcher.pending(),
+        batchFired: { ...this.batcher.firedCounts },
+        viewers: this.viewers.count(),
+        online: this.viewers.online(),
+        memoryCount: this.memory.count(),
+        cognitionQueue: this.cognition.queueDepth(),
+        counts: { ...this.cognition.counts },
+      }),
     }))
 
     this.ws.handlers.registerAll(buildMcpModule(this.mcp, { gateway: this.gateway }))
@@ -460,7 +662,7 @@ class VtuberService {
       configPath: this.configPath,
       onConfigChanged: () => {
         this.applyConfigRuntime()
-        this.reregisterLive2dTools()
+        this.reregisterAbilities()
         const mcpJson = JSON.stringify(this.config.llm.mcpServers ?? {})
         if (mcpJson !== this.lastMcpJson) {
           this.lastMcpJson = mcpJson
@@ -481,7 +683,17 @@ class VtuberService {
     this.ws.handlers.registerAll(buildEventModule({
       getConfig: () => this.config.events,
       onEvent: (e) => this.onEvent(e),
-      onFiltered: () => { this.filteredCount++ },
+      onFiltered: (event) => {
+        this.filteredCount++
+        // 事件被接收开关过滤必须可见（限频：同类型 60s 提示一次）
+        const now = Date.now()
+        const key = `filtered:${event.type}`
+        const last = this.filteredLogAt.get(key) ?? 0
+        if (now - last > 60_000) {
+          this.filteredLogAt.set(key, now)
+          this.uiLog('EVENT', `「${event.type}」事件被接收开关过滤（已累计过滤 ${this.filteredCount} 条）`, 'warn')
+        }
+      },
       db: this.db,
     }))
 
@@ -496,11 +708,25 @@ class VtuberService {
     this.ws.handlers.registerAll(buildRuntimeModule({
       tools: this.tools,
       output: this.output,
-      triggers: this.triggers,
       session: this.session,
-      jukebox: this.jukebox,
       getRoomId: () => this.getRoomId(),
       getToolGate: () => this.config.llm.tools ?? {},
+      trace: this.trace,
+      getActiveModelLabel: () => this.gateway.getActiveModelLabel(),
+    }))
+
+    this.ws.handlers.registerAll(buildBehaviorModule({
+      context: this.context,
+      cognition: this.cognition,
+      trace: this.trace,
+      batcher: this.batcher,
+      viewers: this.viewers,
+      memory: this.memory,
+      getAbilities: () => this.abilities,
+      getJukeboxSources: () => this.jukebox.sources(),
+      getFeedConfig: () => this.config.behavior.feed,
+      getSystemPrompt: () => this.config.llm.systemPrompt,
+      getRoomId: () => this.getRoomId(),
     }))
 
     this.bus.on('event', (e) => {
@@ -512,7 +738,7 @@ class VtuberService {
     this.ws.handlers.register('danmaku.sent', (params) => {
       const rec = (params ?? {}) as { ok?: boolean; error?: string; text?: string }
       if (!rec || rec.ok === false) {
-        console.warn(`[output] 弹幕发送失败: ${rec?.text ?? ''} (${rec?.error ?? 'unknown'})`)
+        this.uiLog('OUTPUT', `弹幕发送失败: 「${rec?.text ?? ''}」(${rec?.error ?? 'unknown'})`, 'err')
         this.ws.broadcast('webui', 'danmaku.failed', rec ?? {})
       }
       return null
@@ -618,7 +844,7 @@ class VtuberService {
 
   async start(): Promise<void> {
     this.registerModules()
-    this.triggers.start()
+    this.batcher.start()
     this.ttsEngine.startSweeper()
     this.startIdleScheduler()
     await this.loginManager.restoreFrom(this.config.music.sessions)
@@ -662,7 +888,7 @@ class VtuberService {
 
   async stop(): Promise<void> {
     try { this.retention?.stop(); this.db?.close(); } catch { /* 忽略 */ }
-    this.triggers.stop()
+    this.batcher.stop()
     this.ttsEngine.stopSweeper()
     this.stopIdleScheduler()
     this.mcp.stopAll()
@@ -703,3 +929,12 @@ if (require.main === module) {
 }
 
 export { VtuberService }
+
+function batchReasonText(reason: BatchReason): string {
+  switch (reason) {
+    case 'quiet': return '静默窗口到期'
+    case 'density': return '事件密度达标'
+    case 'max-wait': return '最大等待到期'
+    case 'max-batch': return '批次上限'
+  }
+}
